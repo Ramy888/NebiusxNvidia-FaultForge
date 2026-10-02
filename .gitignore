@@ -1,0 +1,15 @@
+# local notes and editor config — not part of the product
+nebius-nvidia-global-ai-hackathon.md
+meteor-gliders-agents--27-9.json
+.vscode/
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# python / node
+__pycache__/
+.venv/
+node_modules/
+.DS_Store

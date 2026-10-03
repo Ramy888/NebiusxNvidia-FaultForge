@@ -1,0 +1,33 @@
+[project]
+name = "faultforge"
+version = "0.1.0"
+description = "Find out how your application fails when its dependencies misbehave, and get a repair tested against those failures."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+faultforge = "faultforge.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["faultforge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["examples/*/.venv", "web"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

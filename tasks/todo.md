@@ -9,7 +9,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [ ] Tavily API key
 
 ## Phase 0 — Foundation (offline)
-- [ ] T1 Project scaffold and gates
+- [x] T1 Project scaffold and gates
 - [ ] T2 Example order service with the planted bug
 - [ ] T3 Faultkit + hand-written failing scenario
 - [ ] **Checkpoint A** — bug reproduced deterministically

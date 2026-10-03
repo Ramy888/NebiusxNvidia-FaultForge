@@ -19,9 +19,11 @@ class LocalSandbox:
 
     def __init__(self) -> None:
         self.root = Path(tempfile.mkdtemp(prefix="faultforge-"))
+        # Allowlist, never os.environ: sandboxed code is model-written and must not see API keys.
         self._env = {
-            **os.environ,
-            "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}",
+            "PATH": f"{Path(sys.executable).parent}{os.pathsep}/usr/bin{os.pathsep}/bin",
+            "HOME": str(self.root),
+            "LANG": "C.UTF-8",
             "PYTHONDONTWRITEBYTECODE": "1",
         }
 

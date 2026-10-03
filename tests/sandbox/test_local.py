@@ -110,3 +110,14 @@ def test_unknown_snapshot_is_an_error(source):
 
         with pytest.raises(SandboxError):
             sandbox.run(bogus, "true")
+
+
+def test_secrets_in_the_environment_are_not_visible_to_sandboxed_code(source, monkeypatch):
+    monkeypatch.setenv("NEBIUS_API_KEY", "super-secret")
+    monkeypatch.setenv("GITHUB_TOKEN", "also-secret")
+
+    with LocalSandbox() as sandbox:
+        result = sandbox.run(sandbox.create(source), "env")
+
+    assert "super-secret" not in result.stdout
+    assert "also-secret" not in result.stdout

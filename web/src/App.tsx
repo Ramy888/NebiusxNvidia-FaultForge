@@ -1,0 +1,124 @@
+import { useEffect, useReducer, useRef, useState } from "react";
+import { fetchExamples, fetchRun, followRun, startRun } from "./api";
+import { AttemptTree } from "./components/AttemptTree";
+import { Evidence } from "./components/Evidence";
+import { PhaseBar } from "./components/PhaseBar";
+import { applyEvent, initialModel, type RunModel } from "./runModel";
+import type { Example, RunResult, ServerEvent } from "./types";
+
+type Action = { kind: "reset" } | { kind: "event"; event: ServerEvent };
+
+function reducer(model: RunModel, action: Action): RunModel {
+  return action.kind === "reset" ? initialModel() : applyEvent(model, action.event);
+}
+
+export default function App() {
+  const [examples, setExamples] = useState<Example[]>([]);
+  const [example, setExample] = useState<string>("");
+  const [model, dispatch] = useReducer(reducer, undefined, initialModel);
+  const [result, setResult] = useState<RunResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const stop = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    fetchExamples()
+      .then((list) => {
+        setExamples(list);
+        setExample((current) => current || list[0]?.id || "");
+      })
+      .catch((e: Error) => setError(e.message));
+    return () => stop.current?.();
+  }, []);
+
+  async function run() {
+    stop.current?.();
+    dispatch({ kind: "reset" });
+    setResult(null);
+    setError(null);
+    setSelected(null);
+    setBusy(true);
+    try {
+      const { id } = await startRun(example);
+      stop.current = followRun(
+        id,
+        (event) => dispatch({ kind: "event", event }),
+        async () => {
+          const status = await fetchRun(id).catch(() => null);
+          if (status?.result) setResult(status.result);
+          if (status?.error) setError(status.error);
+          setBusy(false);
+        },
+      );
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="page">
+      <header className="masthead">
+        <p className="wordmark">
+          Fault<span>Forge</span>
+        </p>
+        <h1>Find out how your app fails when its dependencies misbehave.</h1>
+        <p className="lede">
+          FaultForge injects timeouts, rate limits, malformed responses and duplicate deliveries,
+          shows exactly what breaks, then replays every failure against competing repairs.
+          Reasoning by NVIDIA Nemotron on Nebius Token Factory; every attempt runs in its own
+          sandbox branch.
+        </p>
+      </header>
+
+      <section className="panel picker" aria-labelledby="picker-heading">
+        <h2 id="picker-heading">Pick a service</h2>
+        <div className="examples" role="radiogroup">
+          {examples.map((e) => (
+            <label key={e.id} className={`example ${example === e.id ? "example-on" : ""}`}>
+              <input
+                type="radio"
+                name="example"
+                value={e.id}
+                checked={example === e.id}
+                onChange={() => setExample(e.id)}
+              />
+              <code>{e.id}</code>
+              <span>{e.description}</span>
+            </label>
+          ))}
+        </div>
+        <button className="primary" onClick={run} disabled={!example || busy}>
+          {busy ? "Running…" : "Break it and repair it"}
+        </button>
+      </section>
+
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+
+      {model.phase !== "idle" && (
+        <>
+          <PhaseBar phase={model.phase} />
+          {model.failure && (
+            <p className="callout" role="status">
+              <strong>Reproduced:</strong> {model.failure.message}
+            </p>
+          )}
+          <div className="grid">
+            <AttemptTree model={model} selected={selected} onSelect={setSelected} />
+            {result && (
+              <Evidence
+                result={result}
+                candidateId={selected && selected !== "baseline" ? selected : null}
+              />
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

@@ -79,3 +79,18 @@ def test_event_stream_replays_the_whole_run(client):
 
 def test_unknown_run_is_404(client):
     assert client.get("/api/runs/nope").status_code == 404
+
+
+def test_pull_request_preview_for_a_repaired_run(client):
+    run_id = client.post("/api/runs", json={"example": "order-service"}).json()["id"]
+    wait_for(client, run_id)
+
+    preview = client.post(f"/api/runs/{run_id}/pull-request").json()
+
+    assert preview["dry_run"] is True
+    assert preview["branch"] == "faultforge/idempotency_key"
+    assert "orders/fulfillment.py" in preview["files"]
+
+
+def test_pull_request_for_an_unfinished_or_unknown_run(client):
+    assert client.post("/api/runs/nope/pull-request").status_code == 404

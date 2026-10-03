@@ -3,6 +3,7 @@ import { fetchExamples, fetchRun, followRun, startRun } from "./api";
 import { AttemptTree } from "./components/AttemptTree";
 import { Evidence } from "./components/Evidence";
 import { PhaseBar } from "./components/PhaseBar";
+import { PullRequest } from "./components/PullRequest";
 import { applyEvent, initialModel, type RunModel } from "./runModel";
 import type { Example, RunResult, ServerEvent } from "./types";
 
@@ -20,6 +21,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [runId, setRunId] = useState<string | null>(null);
   const stop = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -41,6 +43,7 @@ export default function App() {
     setBusy(true);
     try {
       const { id } = await startRun(example);
+      setRunId(id);
       stop.current = followRun(
         id,
         (event) => dispatch({ kind: "event", event }),
@@ -114,6 +117,7 @@ export default function App() {
               <Evidence
                 result={result}
                 candidateId={selected && selected !== "baseline" ? selected : null}
+                actions={result.winner && runId ? <PullRequest key={runId} runId={runId} /> : null}
               />
             )}
           </div>

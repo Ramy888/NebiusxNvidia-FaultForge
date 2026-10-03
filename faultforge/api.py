@@ -20,6 +20,7 @@ from .auto import auto_scenarios
 from .demo import DESCRIPTIONS, EXAMPLES
 from .events import EventLog
 from .pipeline import load_stub, run_pipeline
+from .pr import PullRequestError, open_pull_request, plan_pull_request
 from .sandbox import LocalSandbox
 from .scenarios import scenario_from_file
 from .serialize import result_to_dict
@@ -39,6 +40,8 @@ class Run:
     state: str = "queued"
     error: str | None = None
     result: dict | None = None
+    pipeline_result: object = None
+    found: object = None
     created: float = field(default_factory=time.time)
 
     @property
@@ -91,6 +94,18 @@ def create_app(mode: str | None = None, max_concurrent_runs: int = 2) -> FastAPI
             "result": run.result,
         }
 
+    @app.post("/api/runs/{run_id}/pull-request")
+    def pull_request(run_id: str) -> dict:
+        run = get_run(run_id)
+        if run.pipeline_result is None:
+            raise HTTPException(409, "run has not finished")
+        try:
+            plan = plan_pull_request(run.pipeline_result, run.found)
+        except PullRequestError as error:
+            raise HTTPException(409, str(error)) from error
+        # The hosted demo only previews: it never pushes to a repository.
+        return open_pull_request(plan, Path("."), dry_run=True)
+
     @app.get("/api/runs/{run_id}/events")
     async def events(run_id: str) -> StreamingResponse:
         run = get_run(run_id)
@@ -133,6 +148,7 @@ def _execute(run: Run, mode: str) -> None:
             raise RuntimeError("no testable scenarios were found")
         with LocalSandbox() as sandbox:
             result = run_pipeline(repo, scenarios, llm, sandbox, run.events)
+        run.pipeline_result, run.found = result, found
         run.result = result_to_dict(result, found)
         run.state = "finished"
     except Exception as error:  # surface any failure to the client instead of hanging

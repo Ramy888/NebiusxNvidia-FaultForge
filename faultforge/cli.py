@@ -8,6 +8,7 @@ from .demo import EXAMPLES
 from .events import EventLog
 from .llm import LLMError
 from .pipeline import Status, load_stub, run_pipeline
+from .pr import PullRequestError, open_pull_request, plan_pull_request
 from .report import render_markdown
 from .research import TavilyResearcher
 from .sandbox import LocalSandbox, SandboxError
@@ -24,6 +25,9 @@ def main(argv: list[str] | None = None) -> int:
     demo = commands.add_parser("demo", help="offline demo on the bundled order service")
     demo.add_argument("--example", choices=sorted(EXAMPLES), default="order-service")
     demo.add_argument("--out", type=Path, help="write the markdown report here")
+    demo.add_argument(
+        "--pr-preview", action="store_true", help="show the pull request it would open"
+    )
 
     run = commands.add_parser("run", help="run scenarios against a repo")
     run.add_argument("repo", type=Path)
@@ -42,6 +46,14 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--setup", help="one-time command run before the baseline")
     run.add_argument("--candidates", type=int, default=3)
     run.add_argument("--out", type=Path)
+    run.add_argument(
+        "--pr-preview", action="store_true", help="show the pull request it would open"
+    )
+    run.add_argument(
+        "--open-pr",
+        action="store_true",
+        help="commit the repair on a new branch in REPO, push it and open a GitHub pull request",
+    )
 
     args = parser.parse_args(argv)
     try:
@@ -90,6 +102,21 @@ def main(argv: list[str] | None = None) -> int:
         args.out.write_text(markdown)
     else:
         print(markdown)
+    if result.winner and (args.pr_preview or getattr(args, "open_pr", False)):
+        plan = plan_pull_request(result, found)
+        live = getattr(args, "open_pr", False)
+        try:
+            outcome = open_pull_request(plan, repo, dry_run=not live)
+        except PullRequestError as error:
+            print(f"faultforge: {error}", file=sys.stderr)
+            return 1
+        print(
+            f"• pull request {'opened' if live else 'preview'}: {outcome['branch']}",
+            file=sys.stderr,
+        )
+        print(f"  {outcome.get('url') or plan.title}", file=sys.stderr)
+        for path in outcome["files"]:
+            print(f"  {path}", file=sys.stderr)
     if usage := getattr(llm, "usage", None):
         print(f"• token usage: {usage}", file=sys.stderr)
     return 0 if result.status in (Status.REPAIRED, Status.NO_FAILURE) else 1

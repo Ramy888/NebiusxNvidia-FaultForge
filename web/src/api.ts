@@ -34,3 +34,16 @@ export function followRun(
   };
   return () => source.close();
 }
+
+export interface PullRequestPreview {
+  dry_run: boolean;
+  branch: string;
+  title: string;
+  body: string;
+  files: string[];
+}
+
+export const previewPullRequest = (id: string) =>
+  fetch(`/api/runs/${id}/pull-request`, { method: "POST" }).then((r) =>
+    json<PullRequestPreview>(r),
+  );

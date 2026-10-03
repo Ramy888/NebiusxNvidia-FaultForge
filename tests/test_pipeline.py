@@ -154,3 +154,11 @@ def test_cli_demo_can_run_the_webhook_example(tmp_path: Path):
 
     assert main(["demo", "--example", "webhook-service", "--out", str(out)]) == 0
     assert "never verified" in out.read_text()
+
+
+def test_cli_pr_preview_prints_branch_and_files(capsys):
+    assert main(["demo", "--pr-preview"]) == 0
+
+    err = capsys.readouterr().err
+    assert "faultforge/idempotency_key" in err
+    assert "tests/test_ff_timeout_duplicate.py" in err

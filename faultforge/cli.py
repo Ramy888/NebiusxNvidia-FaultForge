@@ -1,13 +1,18 @@
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from .demo import ORDER_SERVICE, ORDER_SERVICE_REPO
 from .events import EventLog
+from .llm import LLMError
 from .pipeline import Status, load_stub, run_pipeline
 from .report import render_markdown
-from .sandbox import LocalSandbox
+from .sandbox import LocalSandbox, SandboxError
 from .scenarios import scenario_from_file
+
+# Remote sandboxes start from a bare Python image; local runs reuse FaultForge's interpreter.
+REMOTE_SETUP = "python -m pip install -q httpx pytest"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -20,27 +25,47 @@ def main(argv: list[str] | None = None) -> int:
     run = commands.add_parser("run", help="run scenarios against a repo")
     run.add_argument("repo", type=Path)
     run.add_argument("--scenario", type=Path, action="append", required=True)
-    run.add_argument("--stub", type=Path, help="recorded model responses (offline)")
+    run.add_argument("--stub", type=Path, help="recorded model responses instead of Nemotron")
+    run.add_argument(
+        "--sandbox",
+        choices=["local", "contree"],
+        default=os.environ.get("FAULTFORGE_SANDBOX", "local"),
+    )
+    run.add_argument("--setup", help="one-time command run before the baseline")
+    run.add_argument("--candidates", type=int, default=3)
     run.add_argument("--out", type=Path)
 
     args = parser.parse_args(argv)
-    if args.command == "demo":
-        repo, scenario_files = (
-            ORDER_SERVICE_REPO,
-            sorted((ORDER_SERVICE / "scenarios").glob("*.py")),
-        )
-        llm = load_stub(ORDER_SERVICE / "llm_responses.json")
-    else:
-        repo, scenario_files = args.repo, args.scenario
-        if not args.stub:
-            parser.error("live models arrive with the Token Factory client; pass --stub for now")
-        llm = load_stub(args.stub)
+    try:
+        if args.command == "demo":
+            repo = ORDER_SERVICE_REPO
+            scenario_files = sorted((ORDER_SERVICE / "scenarios").glob("*.py"))
+            llm, sandbox_name, setup = (
+                load_stub(ORDER_SERVICE / "llm_responses.json"),
+                "local",
+                None,
+            )
+        else:
+            repo, scenario_files = args.repo, args.scenario
+            llm = load_stub(args.stub) if args.stub else _live_llm()
+            sandbox_name = args.sandbox
+            setup = args.setup or (REMOTE_SETUP if sandbox_name == "contree" else None)
+        sandbox = _sandbox(sandbox_name)
+    except (LLMError, SandboxError) as error:
+        print(f"faultforge: {error}", file=sys.stderr)
+        return 2
 
     events = EventLog()
     events.subscribe(_print_progress)
-    with LocalSandbox() as sandbox:
+    with sandbox:
         result = run_pipeline(
-            repo, [scenario_from_file(p) for p in scenario_files], llm, sandbox, events
+            repo,
+            [scenario_from_file(p) for p in scenario_files],
+            llm,
+            sandbox,
+            events,
+            max_candidates=getattr(args, "candidates", 3),
+            setup=setup,
         )
 
     markdown = render_markdown(result)
@@ -48,7 +73,23 @@ def main(argv: list[str] | None = None) -> int:
         args.out.write_text(markdown)
     else:
         print(markdown)
+    if usage := getattr(llm, "usage", None):
+        print(f"• token usage: {usage}", file=sys.stderr)
     return 0 if result.status in (Status.REPAIRED, Status.NO_FAILURE) else 1
+
+
+def _live_llm():
+    from .llm.token_factory import TokenFactoryConfig, TokenFactoryLLM
+
+    return TokenFactoryLLM(TokenFactoryConfig.from_env(os.environ))
+
+
+def _sandbox(name: str):
+    if name == "contree":
+        from .sandbox.contree import ContreeSandbox
+
+        return ContreeSandbox()
+    return LocalSandbox()
 
 
 def _print_progress(event) -> None:

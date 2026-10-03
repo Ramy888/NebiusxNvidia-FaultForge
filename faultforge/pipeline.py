@@ -6,9 +6,9 @@ from enum import Enum
 from pathlib import Path
 
 from .events import EventLog
-from .llm import LLM, StubLLM
+from .llm import LLM, LLMError, StubLLM
 from .models import Scenario
-from .repair import generate_repairs
+from .repair import RepairError, generate_repairs
 from .replay import Branch, CandidateResult, Outcome, ReplayReport, replay, run_baseline
 from .sandbox import Sandbox
 from .workspace import prepare_workspace
@@ -50,9 +50,10 @@ def run_pipeline(
     events: EventLog,
     max_candidates: int = 3,
     max_workers: int = 4,
+    setup: str | None = None,
 ) -> PipelineResult:
     events.emit("pipeline_started", repo=source.name, scenarios=[_describe(s) for s in scenarios])
-    base = prepare_workspace(sandbox, source, scenarios)
+    base = prepare_workspace(sandbox, source, scenarios, setup)
     events.emit("workspace_ready", snapshot=base.id)
     baseline = run_baseline(sandbox, base, scenarios, events, max_workers)
     result = PipelineResult(source.name, Status.NO_FAILURE, scenarios, baseline)
@@ -65,9 +66,13 @@ def run_pipeline(
             result.target = failing[0]
             failure = baseline.scenarios[result.target.id].message
             events.emit("failure_reproduced", scenario=result.target.id, message=failure)
-            candidates = generate_repairs(
-                llm, source, result.target, failure, events, max_candidates
-            )
+            try:
+                candidates = generate_repairs(
+                    llm, source, result.target, failure, events, max_candidates
+                )
+            except (RepairError, LLMError) as error:
+                events.emit("repair_failed", reason=str(error))
+                candidates = []
             result.report = replay(
                 sandbox, base, source, scenarios, candidates, events, max_workers, baseline
             )

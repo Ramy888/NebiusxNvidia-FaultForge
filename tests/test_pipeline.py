@@ -80,3 +80,48 @@ def test_cli_demo_writes_a_report_without_network(tmp_path: Path):
 
     assert exit_code == 0
     assert "idempotency_key" in out.read_text()
+
+
+def test_live_run_without_api_key_explains_what_is_missing(monkeypatch, capsys):
+    monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
+
+    exit_code = main(["run", str(ORDER_SERVICE_REPO), "--scenario", str(TIMEOUT_FILE)])
+
+    assert exit_code == 2
+    assert "NEBIUS_API_KEY" in capsys.readouterr().err
+
+
+def test_run_with_recorded_responses_uses_the_local_sandbox(tmp_path: Path):
+    out = tmp_path / "r.md"
+
+    exit_code = main(
+        [
+            "run",
+            str(ORDER_SERVICE_REPO),
+            "--scenario",
+            str(TIMEOUT_FILE),
+            "--stub",
+            str(ORDER_SERVICE / "llm_responses.json"),
+            "--out",
+            str(out),
+        ]
+    )
+
+    assert exit_code == 0
+    assert "accepted" in out.read_text()
+
+
+def test_unusable_model_output_ends_as_no_repair_not_a_crash():
+    events = EventLog()
+
+    with LocalSandbox() as sandbox:
+        result = run_pipeline(
+            ORDER_SERVICE_REPO,
+            [scenario_from_file(TIMEOUT_FILE)],
+            StubLLM(plan=["garbage", "more garbage"]),
+            sandbox,
+            events,
+        )
+
+    assert result.status is Status.NO_REPAIR
+    assert any(e.type == "repair_failed" for e in events.items())

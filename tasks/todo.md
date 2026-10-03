@@ -28,7 +28,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [ ] **Checkpoint C** — go / no-go on the track (Oct 7–9)
 
 ## Phase 3 — Scenario generation
-- [ ] T11 Dependency discovery
+- [x] T11 Dependency discovery
 - [ ] T12 Scenario generation from templates
 - [ ] T13 Tavily research
 - [ ] T14 Two more repos (one third-party)

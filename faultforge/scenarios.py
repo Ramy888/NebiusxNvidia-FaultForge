@@ -123,7 +123,10 @@ def generate_scenarios(llm, source: Path, dependency, research: str, events) -> 
     events.emit("scenarios_planned", scenarios=plan.get("scenarios", []))
 
     scenarios = []
-    for item in plan.get("scenarios", []):
+    items = plan.get("scenarios")
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
         fault = str(item.get("fault", ""))
         if fault not in FAULT_EXPRESSIONS:
             continue

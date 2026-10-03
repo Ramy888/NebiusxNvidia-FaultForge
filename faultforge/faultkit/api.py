@@ -17,7 +17,7 @@ class FakeAPI:
         key = request.headers.get("Idempotency-Key")
         if key and key in self._results_by_key:
             return httpx.Response(self.status, json=self._results_by_key[key])
-        self.accepted.append(json.loads(request.content) if request.content else None)
+        self.accepted.append(_body(request))
         result = {
             "id": f"{self.id_prefix}_{len(self.accepted)}",
             "status": "accepted",
@@ -26,3 +26,12 @@ class FakeAPI:
         if key:
             self._results_by_key[key] = result
         return httpx.Response(self.status, json=result)
+
+
+def _body(request: httpx.Request):
+    if not request.content:
+        return None
+    try:
+        return json.loads(request.content)
+    except ValueError:
+        return request.content.decode(errors="replace")

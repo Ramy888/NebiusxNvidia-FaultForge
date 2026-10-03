@@ -117,7 +117,7 @@ button.primary:disabled { opacity: 0.55; cursor: progress; }
 
 .verdict { font-weight: 600; padding: 10px 14px; border-radius: 6px; margin: 0 0 12px; }
 .verdict-repaired { background: var(--add-bg); }
-.verdict-no_repair, .verdict-broken_baseline { background: var(--del-bg); }
+.verdict-no_repair, .verdict-broken_baseline, .verdict-no_valid_scenarios { background: var(--del-bg); }
 .verdict-no_failure { background: var(--code-bg); }
 
 .failures { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }

@@ -43,7 +43,10 @@ class Dependency:
 def find_http_call_sites(source: Path) -> list[CallSite]:
     sites = []
     for path, code in collect_source_files(source).items():
-        tree = ast.parse(code)
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            continue
         if not _imports_httpx(tree):
             continue
         sites.extend(_Visitor(path).collect(tree))
@@ -72,7 +75,10 @@ def discover(llm: LLM, source: Path, events: EventLog) -> list[Dependency]:
 
     by_ref = {s.ref: s for s in sites}
     dependencies = []
-    for item in data.get("dependencies", []):
+    items = data.get("dependencies")
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
         site = by_ref.get(str(item.get("call_site", "")))
         if site is None:
             continue

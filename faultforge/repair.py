@@ -1,7 +1,7 @@
 """Plan distinct repair strategies (reasoning model), then write each one (fast model)."""
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .events import EventLog
 from .llm import LLM, LLMError, Role, parse_json
@@ -11,6 +11,16 @@ from .sandbox import SandboxError, safe_relative_path
 MAX_SOURCE_BYTES = 60_000
 # Repairs may not edit tests (that would hide the failure) or the fault kit.
 PROTECTED_PREFIXES = ("faultkit/", "tests/")
+# ...nor test configuration, which could skip or force-pass the scenarios.
+PROTECTED_NAMES = {
+    "conftest.py",
+    "pytest.ini",
+    "pyproject.toml",
+    "setup.cfg",
+    "tox.ini",
+    "sitecustomize.py",
+    "usercustomize.py",
+}
 
 PLAN_SYSTEM = """You are a senior backend engineer repairing a reliability bug.
 A failure-injection test reproduces how the application misbehaves when an HTTP dependency fails.
@@ -62,7 +72,7 @@ def generate_repairs(
         request = f"{context}\n\nImplement this strategy:\n{json.dumps(strategy, indent=2)}"
         try:
             written = _ask(llm, "write", WRITE_SYSTEM, request, _validate_files)
-        except RepairError as error:
+        except (RepairError, LLMError) as error:
             events.emit("candidate_rejected", candidate=strategy["id"], reason=str(error))
             continue
         candidate = Candidate(strategy["id"], strategy["summary"], written["files"])
@@ -110,7 +120,7 @@ def _validate_files(data: dict) -> None:
         raise ValueError("expected a non-empty 'files' object")
     for path, content in files.items():
         safe = safe_relative_path(path).as_posix()
-        if safe.startswith(PROTECTED_PREFIXES):
+        if safe.startswith(PROTECTED_PREFIXES) or PurePosixPath(safe).name in PROTECTED_NAMES:
             raise ValueError(f"must not modify {path}")
         if not isinstance(content, str):
             raise ValueError(f"content for {path} must be a string")

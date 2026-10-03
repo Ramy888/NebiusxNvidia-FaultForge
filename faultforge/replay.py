@@ -15,6 +15,7 @@ from .sandbox import RunResult, Sandbox, Snapshot
 PYTEST = "python -m pytest -q --tb=short -rfE -p no:cacheprovider"
 EXISTING_TESTS = f"{PYTEST} --ignore-glob='*/test_ff_*.py'"
 CHECK_TIMEOUT_S = 120
+NO_TESTS_COLLECTED = 5  # pytest exit code
 OUTPUT_TAIL_CHARS = 4000
 
 
@@ -106,6 +107,8 @@ class _Runner:
         self.events.emit("run_started", branch=branch, check=name, snapshot=snapshot.id)
         result = self.sandbox.run(snapshot, command, timeout=CHECK_TIMEOUT_S)
         outcome, message = classify(result)
+        if name == "existing_tests" and result.exit_code == NO_TESTS_COLLECTED:
+            outcome, message = Outcome.PASSED, "the repo has no tests of its own"
         self.events.emit(
             "run_finished",
             branch=branch,
@@ -147,6 +150,7 @@ def replay(
     events: EventLog,
     max_workers: int = 4,
     baseline: Branch | None = None,
+    target: str | None = None,
 ) -> ReplayReport:
     events.emit(
         "replay_started",
@@ -159,7 +163,8 @@ def replay(
         if baseline is None:
             baseline = runner.branch(base, "baseline")
         results = [
-            _evaluate(sandbox, base, source, c, baseline, runner.branch, events) for c in candidates
+            _evaluate(sandbox, base, source, c, baseline, runner.branch, events, target)
+            for c in candidates
         ]
 
     report = ReplayReport(baseline, results)
@@ -167,9 +172,43 @@ def replay(
     return report
 
 
-def _evaluate(sandbox, base, source, candidate, baseline, run_branch, events) -> CandidateResult:
+def judge(
+    before: dict[str, Outcome],
+    after: dict[str, Outcome],
+    existing: Outcome,
+    target: str | None = None,
+) -> tuple[str, list[str], list[str]]:
+    """Returns (rejection reason or "", fixed scenarios, regressed scenarios)."""
+    fixed = [k for k in after if before[k] is not Outcome.PASSED and after[k] is Outcome.PASSED]
+    regressed = [k for k in after if before[k] is Outcome.PASSED and after[k] is not Outcome.PASSED]
+    if existing is not Outcome.PASSED:
+        reason = "breaks existing tests"
+    elif regressed:
+        reason = f"regresses scenarios: {', '.join(regressed)}"
+    elif not fixed:
+        reason = "fixes no failing scenario"
+    elif target is not None and target not in fixed:
+        reason = f"does not fix {target}"
+    else:
+        reason = ""
+    return reason, fixed, regressed
+
+
+def _evaluate(
+    sandbox, base, source, candidate, baseline, run_branch, events, target=None
+) -> CandidateResult:
     applied = sandbox.run(base, "true", files=candidate.files, timeout=60)
     diff, diff_lines = unified_diff(source, candidate.files)
+    if applied.exit_code != 0 or applied.timed_out:
+        events.emit("candidate_rejected", candidate=candidate.id, reason="patch not applied")
+        return CandidateResult(
+            existing_tests=baseline.existing_tests,
+            scenarios=baseline.scenarios,
+            candidate=candidate,
+            diff=diff,
+            diff_lines=diff_lines,
+            rejection_reason="patch could not be applied in the sandbox",
+        )
     events.emit(
         "candidate_applied",
         candidate=candidate.id,
@@ -179,18 +218,12 @@ def _evaluate(sandbox, base, source, candidate, baseline, run_branch, events) ->
         diff=diff,
     )
     branch = run_branch(applied.snapshot, candidate.id)
-    before = {k: c.outcome for k, c in baseline.scenarios.items()}
-    after = {k: c.outcome for k, c in branch.scenarios.items()}
-    fixed = [k for k in after if before[k] is not Outcome.PASSED and after[k] is Outcome.PASSED]
-    regressed = [k for k in after if before[k] is Outcome.PASSED and after[k] is not Outcome.PASSED]
-    if branch.existing_tests.outcome is not Outcome.PASSED:
-        reason = "breaks existing tests"
-    elif regressed:
-        reason = f"regresses scenarios: {', '.join(regressed)}"
-    elif not fixed:
-        reason = "fixes no failing scenario"
-    else:
-        reason = ""
+    reason, fixed, regressed = judge(
+        {k: c.outcome for k, c in baseline.scenarios.items()},
+        {k: c.outcome for k, c in branch.scenarios.items()},
+        branch.existing_tests.outcome,
+        target,
+    )
     return CandidateResult(
         existing_tests=branch.existing_tests,
         scenarios=branch.scenarios,

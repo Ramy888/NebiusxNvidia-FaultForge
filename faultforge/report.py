@@ -7,6 +7,7 @@ HEADLINES = {
     Status.NO_REPAIR: "The failure was reproduced, but no candidate repair passed verification.",
     Status.NO_FAILURE: "No scenario reproduced a failure.",
     Status.BROKEN_BASELINE: "The existing test suite fails before any fault is injected.",
+    Status.NO_VALID_SCENARIOS: "Every failure test was discarded: the tests were broken.",
 }
 
 

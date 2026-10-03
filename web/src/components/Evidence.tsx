@@ -8,6 +8,7 @@ const HEADLINES: Record<RunResult["status"], string> = {
   no_repair: "The failure was reproduced, but no repair passed verification.",
   no_failure: "No injected failure broke the application.",
   broken_baseline: "The existing tests fail before any fault is injected.",
+  no_valid_scenarios: "Every generated failure test was discarded because the test itself was broken.",
 };
 
 function Transition({ before, after }: { before: CheckResult; after: CheckResult }) {

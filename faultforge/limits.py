@@ -16,6 +16,7 @@ class RateLimiter:
     def check(self, key: str) -> int:
         now = self._clock()
         with self._lock:
+            self._forget_idle(now)
             hits = self._hits[key]
             while hits and hits[0] <= now - self._window:
                 hits.popleft()
@@ -23,3 +24,13 @@ class RateLimiter:
                 return max(1, math.ceil(hits[0] + self._window - now))
             hits.append(now)
             return 0
+
+    def tracked_clients(self) -> int:
+        with self._lock:
+            return len(self._hits)
+
+    def _forget_idle(self, now: float) -> None:
+        """Drop clients with no hits in the window, so memory stays bounded."""
+        idle = [k for k, hits in self._hits.items() if not hits or hits[-1] <= now - self._window]
+        for key in idle:
+            del self._hits[key]

@@ -42,7 +42,7 @@ export interface CandidateResult {
 
 export interface RunResult {
   repo: string;
-  status: "repaired" | "no_repair" | "no_failure" | "broken_baseline";
+  status: "repaired" | "no_repair" | "no_failure" | "broken_baseline" | "no_valid_scenarios";
   target: string | null;
   winner: string | null;
   existing_tests: CheckResult;

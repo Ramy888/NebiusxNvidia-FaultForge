@@ -20,6 +20,7 @@ class Status(Enum):
     NO_REPAIR = "no_repair"
     NO_FAILURE = "no_failure"
     BROKEN_BASELINE = "broken_baseline"
+    NO_VALID_SCENARIOS = "no_valid_scenarios"
 
 
 @dataclass
@@ -62,6 +63,8 @@ def run_pipeline(
 
     if baseline.existing_tests.outcome is not Outcome.PASSED:
         result.status = Status.BROKEN_BASELINE
+    elif not scenarios:
+        result.status = Status.NO_VALID_SCENARIOS
     else:
         failing = [s for s in scenarios if baseline.scenarios[s.id].outcome is Outcome.FAILED]
         if failing:
@@ -76,7 +79,15 @@ def run_pipeline(
                 events.emit("repair_failed", reason=str(error))
                 candidates = []
             result.report = replay(
-                sandbox, base, source, scenarios, candidates, events, max_workers, baseline
+                sandbox,
+                base,
+                source,
+                scenarios,
+                candidates,
+                events,
+                max_workers,
+                baseline,
+                target=result.target.id,
             )
             result.status = Status.REPAIRED if result.winner else Status.NO_REPAIR
 

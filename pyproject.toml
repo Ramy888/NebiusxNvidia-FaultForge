@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.142.2",
     "httpx>=0.28.1",
     "openai>=3.24.0",
+    "pytest>=8",
     "uvicorn>=0.30",
 ]
 
@@ -22,7 +23,9 @@ contree = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = [
+ "ruff>=0.6",
+]
 
 [build-system]
 requires = ["hatchling"]

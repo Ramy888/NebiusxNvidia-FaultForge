@@ -98,6 +98,11 @@ def create_app(
     def start(body: RunRequest, request: Request) -> dict:
         if body.example not in EXAMPLES:
             raise HTTPException(404, "unknown example")
+        # Check capacity first, so retrying against a busy server never burns the client's quota.
+        with lock:
+            busy = sum(not r.done for r in runs.values()) >= max_active_runs
+        if busy:
+            raise HTTPException(503, "busy running other demos, try again in a minute")
         retry_after = limiter.check(_client_key(request, trust_proxy))
         if retry_after:
             raise HTTPException(
@@ -105,8 +110,6 @@ def create_app(
             )
         run = Run(id=uuid.uuid4().hex[:12], example=body.example)
         with lock:
-            if sum(not r.done for r in runs.values()) >= max_active_runs:
-                raise HTTPException(503, "busy running other demos, try again in a minute")
             runs[run.id] = run
             for stale in list(runs)[:-keep_runs]:
                 del runs[stale]
@@ -137,11 +140,13 @@ def create_app(
         return open_pull_request(plan, Path("."), dry_run=True)
 
     @app.get("/api/runs/{run_id}/events")
-    async def events(run_id: str) -> StreamingResponse:
+    async def events(run_id: str, request: Request) -> StreamingResponse:
         run = get_run(run_id)
+        last_seen = request.headers.get("last-event-id", "")
 
         async def stream():
-            since = 0
+            # Browsers send Last-Event-ID when they reconnect; resume instead of replaying.
+            since = int(last_seen) + 1 if last_seen.isdigit() else 0
             while True:
                 fresh = run.events.items(since)
                 for event in fresh:
@@ -163,7 +168,8 @@ def create_app(
 def _client_key(request: Request, trust_proxy: bool) -> str:
     forwarded = request.headers.get("x-forwarded-for", "")
     if trust_proxy and forwarded:
-        return forwarded.split(",")[0].strip()
+        # The trusted proxy appends the address it saw; earlier entries are client-supplied.
+        return forwarded.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 
@@ -185,7 +191,8 @@ def _execute(run: Run, mode: str, sandbox_name: str = "local") -> None:
             raise RuntimeError("no testable scenarios were found")
         # Demo mode replays recorded, reviewed patches, so the local sandbox is acceptable there.
         sandbox = _sandbox(sandbox_name) if mode == "live" else LocalSandbox()
-        setup = "python -m pip install -q httpx pytest" if sandbox_name == "contree" else None
+        remote = mode == "live" and sandbox_name == "contree"
+        setup = "python -m pip install -q httpx pytest" if remote else None
         with sandbox:
             result = run_pipeline(repo, scenarios, llm, sandbox, run.events, setup=setup)
         run.pipeline_result, run.found = result, found
@@ -193,5 +200,5 @@ def _execute(run: Run, mode: str, sandbox_name: str = "local") -> None:
         run.state = "finished"
     except Exception as error:  # surface any failure to the client instead of hanging
         run.error = str(error)
+        run.events.emit("run_failed", error=str(error))  # before the state flips, so streams see it
         run.state = "failed"
-        run.events.emit("run_failed", error=str(error))

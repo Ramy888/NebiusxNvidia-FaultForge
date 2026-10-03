@@ -37,9 +37,10 @@ export function followRun(
     source.close();
     onEnd();
   });
+  // On a dropped connection EventSource reconnects by itself and sends Last-Event-ID, which the
+  // server uses to resume. Only give up if the browser has stopped retrying.
   source.onerror = () => {
-    source.close();
-    onEnd();
+    if (source.readyState === EventSource.CLOSED) onEnd();
   };
   return () => source.close();
 }

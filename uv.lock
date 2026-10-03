@@ -141,6 +141,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "openai" },
+    { name = "pytest" },
     { name = "uvicorn" },
 ]
 
@@ -152,7 +153,6 @@ contree = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "pytest" },
     { name = "ruff" },
 ]
 
@@ -163,15 +163,13 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.142.2" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "openai", specifier = ">=3.24.0" },
+    { name = "pytest", specifier = ">=8" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 provides-extras = ["contree"]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8" },
-    { name = "ruff", specifier = ">=0.6" },
-]
+dev = [{ name = "ruff", specifier = ">=0.6" }]
 
 [[package]]
 name = "h11"

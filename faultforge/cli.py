@@ -3,11 +3,13 @@ import os
 import sys
 from pathlib import Path
 
+from .auto import auto_scenarios
 from .demo import ORDER_SERVICE, ORDER_SERVICE_REPO
 from .events import EventLog
 from .llm import LLMError
 from .pipeline import Status, load_stub, run_pipeline
 from .report import render_markdown
+from .research import TavilyResearcher
 from .sandbox import LocalSandbox, SandboxError
 from .scenarios import scenario_from_file
 
@@ -24,7 +26,12 @@ def main(argv: list[str] | None = None) -> int:
 
     run = commands.add_parser("run", help="run scenarios against a repo")
     run.add_argument("repo", type=Path)
-    run.add_argument("--scenario", type=Path, action="append", required=True)
+    run.add_argument(
+        "--scenario",
+        type=Path,
+        action="append",
+        help="scenario test file (repeatable); omit to discover and generate scenarios",
+    )
     run.add_argument("--stub", type=Path, help="recorded model responses instead of Nemotron")
     run.add_argument(
         "--sandbox",
@@ -50,17 +57,30 @@ def main(argv: list[str] | None = None) -> int:
             llm = load_stub(args.stub) if args.stub else _live_llm()
             sandbox_name = args.sandbox
             setup = args.setup or (REMOTE_SETUP if sandbox_name == "contree" else None)
-        sandbox = _sandbox(sandbox_name)
-    except (LLMError, SandboxError) as error:
+    except LLMError as error:
         print(f"faultforge: {error}", file=sys.stderr)
         return 2
 
     events = EventLog()
     events.subscribe(_print_progress)
+    found = None
+    if scenario_files:
+        scenarios = [scenario_from_file(p) for p in scenario_files]
+    else:
+        found = auto_scenarios(llm, repo, _researcher(), events)
+        scenarios = found.scenarios
+        if not scenarios:
+            print("faultforge: no testable HTTP dependency scenarios found", file=sys.stderr)
+            return 1
+    try:
+        sandbox = _sandbox(sandbox_name)
+    except SandboxError as error:
+        print(f"faultforge: {error}", file=sys.stderr)
+        return 2
     with sandbox:
         result = run_pipeline(
             repo,
-            [scenario_from_file(p) for p in scenario_files],
+            scenarios,
             llm,
             sandbox,
             events,
@@ -68,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
             setup=setup,
         )
 
-    markdown = render_markdown(result)
+    markdown = render_markdown(result, found)
     if args.out:
         args.out.write_text(markdown)
     else:
@@ -82,6 +102,11 @@ def _live_llm():
     from .llm.token_factory import TokenFactoryConfig, TokenFactoryLLM
 
     return TokenFactoryLLM(TokenFactoryConfig.from_env(os.environ))
+
+
+def _researcher():
+    key = os.environ.get("TAVILY_API_KEY")
+    return TavilyResearcher(key) if key else None
 
 
 def _sandbox(name: str):

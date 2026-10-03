@@ -30,7 +30,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 ## Phase 3 — Scenario generation
 - [x] T11 Dependency discovery
 - [x] T12 Scenario generation from templates
-- [ ] T13 Tavily research
+- [x] T13 Tavily research (live call pending: Tavily key)
 - [ ] T14 Two more repos (one third-party)
 - [ ] **Checkpoint D** — generation stable, or ship templates (Oct 16)
 

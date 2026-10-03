@@ -10,8 +10,22 @@ HEADLINES = {
 }
 
 
-def render_markdown(result: PipelineResult) -> str:
+def render_markdown(result: PipelineResult, found=None) -> str:
     lines = [f"# FaultForge report: {result.repo}", "", f"**{HEADLINES[result.status]}**", ""]
+    if found is not None and found.dependency is not None:
+        dependency = found.dependency
+        sites = ", ".join(f"`{s.ref}`" for s in dependency.call_sites)
+        lines += [
+            "## Dependency",
+            "",
+            f"**{dependency.name}** — called from {sites}; "
+            f"operation at risk: `{dependency.operation}`.",
+            "",
+        ]
+        if found.research.sources:
+            lines += ["Research (Tavily) on how the real service fails:", ""]
+            lines += [f"- [{s.title}]({s.url})" for s in found.research.sources]
+            lines.append("")
     lines += ["## Injected failures", "", "| Scenario | Fault | Baseline | What happened |"]
     lines += ["|---|---|---|---|"]
     for scenario in result.scenarios:

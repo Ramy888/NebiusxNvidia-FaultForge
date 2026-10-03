@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from .auto import auto_scenarios
 from .demo import DESCRIPTIONS, EXAMPLES
 from .events import EventLog
+from .limits import RateLimiter
 from .pipeline import load_stub, run_pipeline
 from .pr import PullRequestError, open_pull_request, plan_pull_request
 from .sandbox import LocalSandbox
@@ -49,8 +50,28 @@ class Run:
         return self.state in ("finished", "failed")
 
 
-def create_app(mode: str | None = None, max_concurrent_runs: int = 2) -> FastAPI:
+def create_app(
+    mode: str | None = None,
+    max_concurrent_runs: int = 2,
+    max_active_runs: int = 4,
+    runs_per_window: int = 5,
+    window_s: float = 600,
+    keep_runs: int = 100,
+) -> FastAPI:
+    """The public demo: prepared examples only, rate-limited, bounded in memory and work."""
     mode = mode or os.environ.get("FAULTFORGE_MODE", "demo")
+    sandbox_name = os.environ.get("FAULTFORGE_SANDBOX", "local")
+    if (
+        mode == "live"
+        and sandbox_name == "local"
+        and os.environ.get("FAULTFORGE_ALLOW_LOCAL_LIVE") != "1"
+    ):
+        raise RuntimeError(
+            "live mode runs model-written code: set FAULTFORGE_SANDBOX=contree (an isolated "
+            "sandbox), or FAULTFORGE_ALLOW_LOCAL_LIVE=1 on a machine you are willing to risk"
+        )
+    trust_proxy = os.environ.get("FAULTFORGE_TRUST_PROXY") == "1"
+    limiter = RateLimiter(runs_per_window, window_s)
     runs: dict[str, Run] = {}
     lock = threading.Lock()
     executor = ThreadPoolExecutor(max_workers=max_concurrent_runs)
@@ -74,13 +95,22 @@ def create_app(mode: str | None = None, max_concurrent_runs: int = 2) -> FastAPI
         return [{"id": name, "description": DESCRIPTIONS[name]} for name in sorted(EXAMPLES)]
 
     @app.post("/api/runs", status_code=202)
-    def start(request: RunRequest) -> dict:
-        if request.example not in EXAMPLES:
+    def start(body: RunRequest, request: Request) -> dict:
+        if body.example not in EXAMPLES:
             raise HTTPException(404, "unknown example")
-        run = Run(id=uuid.uuid4().hex[:12], example=request.example)
+        retry_after = limiter.check(_client_key(request, trust_proxy))
+        if retry_after:
+            raise HTTPException(
+                429, "too many runs, try again later", {"Retry-After": str(retry_after)}
+            )
+        run = Run(id=uuid.uuid4().hex[:12], example=body.example)
         with lock:
+            if sum(not r.done for r in runs.values()) >= max_active_runs:
+                raise HTTPException(503, "busy running other demos, try again in a minute")
             runs[run.id] = run
-        executor.submit(_execute, run, mode)
+            for stale in list(runs)[:-keep_runs]:
+                del runs[stale]
+        executor.submit(_execute, run, mode, sandbox_name)
         return {"id": run.id}
 
     @app.get("/api/runs/{run_id}")
@@ -130,13 +160,20 @@ def create_app(mode: str | None = None, max_concurrent_runs: int = 2) -> FastAPI
     return app
 
 
-def _execute(run: Run, mode: str) -> None:
+def _client_key(request: Request, trust_proxy: bool) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if trust_proxy and forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _execute(run: Run, mode: str, sandbox_name: str = "local") -> None:
     run.state = "running"
     try:
         assets, repo = EXAMPLES[run.example]
         found = None
         if mode == "live":
-            from .cli import _live_llm, _researcher
+            from .cli import _live_llm, _researcher, _sandbox
 
             llm = _live_llm()
             found = auto_scenarios(llm, repo, _researcher(), run.events)
@@ -146,8 +183,11 @@ def _execute(run: Run, mode: str) -> None:
             scenarios = [scenario_from_file(p) for p in sorted((assets / "scenarios").glob("*.py"))]
         if not scenarios:
             raise RuntimeError("no testable scenarios were found")
-        with LocalSandbox() as sandbox:
-            result = run_pipeline(repo, scenarios, llm, sandbox, run.events)
+        # Demo mode replays recorded, reviewed patches, so the local sandbox is acceptable there.
+        sandbox = _sandbox(sandbox_name) if mode == "live" else LocalSandbox()
+        setup = "python -m pip install -q httpx pytest" if sandbox_name == "contree" else None
+        with sandbox:
+            result = run_pipeline(repo, scenarios, llm, sandbox, run.events, setup=setup)
         run.pipeline_result, run.found = result, found
         run.result = result_to_dict(result, found)
         run.state = "finished"

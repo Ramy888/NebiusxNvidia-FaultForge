@@ -1,7 +1,16 @@
 import type { Example, RunStatus, ServerEvent } from "./types";
 
 async function json<T>(response: Response): Promise<T> {
-  if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+  if (!response.ok) {
+    const text = await response.text();
+    let detail = text;
+    try {
+      detail = (JSON.parse(text) as { detail?: string }).detail ?? text;
+    } catch {
+      /* not JSON: show the raw text */
+    }
+    throw new Error(detail || `Request failed (${response.status})`);
+  }
   return response.json() as Promise<T>;
 }
 

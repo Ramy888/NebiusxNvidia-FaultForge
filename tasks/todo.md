@@ -15,7 +15,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [x] **Checkpoint A** — bug reproduced deterministically
 
 ## Phase 1 — Repair and replay (offline fallback)
-- [ ] T4 Sandbox protocol + LocalSandbox
+- [x] T4 Sandbox protocol + LocalSandbox
 - [ ] T5 Replay matrix and scoring
 - [ ] T6 LLM protocol, stub, repair generation
 - [ ] T7 CLI end-to-end on the example repo

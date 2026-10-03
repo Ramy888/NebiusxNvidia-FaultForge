@@ -11,6 +11,7 @@ from .models import Scenario
 from .repair import RepairError, generate_repairs
 from .replay import Branch, CandidateResult, Outcome, ReplayReport, replay, run_baseline
 from .sandbox import Sandbox
+from .scenarios import is_test_bug
 from .workspace import prepare_workspace
 
 
@@ -56,6 +57,7 @@ def run_pipeline(
     base = prepare_workspace(sandbox, source, scenarios, setup)
     events.emit("workspace_ready", snapshot=base.id)
     baseline = run_baseline(sandbox, base, scenarios, events, max_workers)
+    scenarios = _drop_broken_scenarios(scenarios, baseline, events)
     result = PipelineResult(source.name, Status.NO_FAILURE, scenarios, baseline)
 
     if baseline.existing_tests.outcome is not Outcome.PASSED:
@@ -84,6 +86,21 @@ def run_pipeline(
         winner=result.winner.candidate.id if result.winner else None,
     )
     return result
+
+
+def _drop_broken_scenarios(scenarios: list[Scenario], baseline: Branch, events) -> list[Scenario]:
+    """A scenario that errors, or fails because of a bug in the test itself, proves nothing."""
+    kept = []
+    for scenario in scenarios:
+        check = baseline.scenarios[scenario.id]
+        broken = check.outcome in (Outcome.ERROR, Outcome.TIMED_OUT) or (
+            check.outcome is Outcome.FAILED and is_test_bug(check.message)
+        )
+        if broken:
+            events.emit("scenario_discarded", scenario=scenario.id, reason=check.message)
+        else:
+            kept.append(scenario)
+    return kept
 
 
 def _describe(scenario: Scenario) -> dict:

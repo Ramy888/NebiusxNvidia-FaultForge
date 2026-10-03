@@ -10,6 +10,8 @@ from .events import EventLog
 from .models import Candidate, Scenario
 from .sandbox import RunResult, Sandbox, Snapshot
 
+# `python -m pytest` (not the `pytest` script) puts the repo root on sys.path, which is what lets
+# scenario tests `import faultkit` and the app's own packages without any packaging step.
 PYTEST = "python -m pytest -q --tb=short -rfE -p no:cacheprovider"
 EXISTING_TESTS = f"{PYTEST} --ignore-glob='*/test_ff_*.py'"
 CHECK_TIMEOUT_S = 120

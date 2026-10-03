@@ -6,7 +6,7 @@ from faultforge.demo import ORDER_SERVICE
 from faultforge.events import EventLog
 from faultforge.models import Candidate, Scenario
 from faultforge.replay import Outcome, replay
-from faultforge.sandbox import LocalSandbox
+from faultforge.sandbox import LocalSandbox, SandboxError
 from faultforge.workspace import prepare_workspace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,3 +89,18 @@ def test_replay_emits_events():
     assert kinds[0] == "replay_started"
     assert kinds.count("run_finished") == 4  # baseline: existing + scenario; candidate: same
     assert kinds[-1] == "replay_finished"
+
+
+def test_workspace_runs_setup_once_and_branches_inherit_it():
+    with LocalSandbox() as sandbox:
+        base = prepare_workspace(
+            sandbox, EXAMPLE, [TIMEOUT_SCENARIO], setup="echo bootstrapped > .ff_setup"
+        )
+        result = sandbox.run(base, "cat .ff_setup")
+
+    assert result.stdout == "bootstrapped\n"
+
+
+def test_failing_setup_is_reported():
+    with LocalSandbox() as sandbox, pytest.raises(SandboxError, match="setup failed"):
+        prepare_workspace(sandbox, EXAMPLE, [TIMEOUT_SCENARIO], setup="echo nope >&2; exit 4")

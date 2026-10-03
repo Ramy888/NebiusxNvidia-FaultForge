@@ -30,7 +30,7 @@ addopts = "-q"
 line-length = 100
 target-version = "py312"
 src = [".", "examples/*"]
-extend-exclude = ["examples/*/.venv", "web"]
+extend-exclude = ["examples/*/.venv", "web", "tests/fixtures/candidates"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]

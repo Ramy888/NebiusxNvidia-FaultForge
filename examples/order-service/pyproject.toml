@@ -1,0 +1,14 @@
+[project]
+name = "order-service"
+version = "0.1.0"
+description = "Example shop backend that places orders with an external fulfillment provider."
+requires-python = ">=3.12"
+dependencies = ["httpx>=0.27"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"

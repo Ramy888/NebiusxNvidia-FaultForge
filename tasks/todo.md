@@ -10,7 +10,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 
 ## Phase 0 — Foundation (offline)
 - [x] T1 Project scaffold and gates
-- [ ] T2 Example order service with the planted bug
+- [x] T2 Example order service with the planted bug
 - [ ] T3 Faultkit + hand-written failing scenario
 - [ ] **Checkpoint A** — bug reproduced deterministically
 

@@ -125,3 +125,32 @@ def test_unusable_model_output_ends_as_no_repair_not_a_crash():
 
     assert result.status is Status.NO_REPAIR
     assert any(e.type == "repair_failed" for e in events.items())
+
+
+def test_webhook_demo_catches_unverified_payment_and_repairs_it():
+    from faultforge.demo import WEBHOOK_SERVICE, WEBHOOK_SERVICE_REPO
+
+    scenario = scenario_from_file(WEBHOOK_SERVICE / "scenarios" / "rate_limited_verification.py")
+    with LocalSandbox() as sandbox:
+        result = run_pipeline(
+            WEBHOOK_SERVICE_REPO,
+            [scenario],
+            load_stub(WEBHOOK_SERVICE / "llm_responses.json"),
+            sandbox,
+            EventLog(),
+        )
+
+    assert scenario.fault == "rate_limit"
+    assert "never verified" in result.baseline.scenarios[scenario.id].message
+    assert result.status is Status.REPAIRED
+    assert {r.candidate.id for r in result.report.results if r.accepted} == {
+        "verify_or_fail",
+        "unknown_default",
+    }
+
+
+def test_cli_demo_can_run_the_webhook_example(tmp_path: Path):
+    out = tmp_path / "report.md"
+
+    assert main(["demo", "--example", "webhook-service", "--out", str(out)]) == 0
+    assert "never verified" in out.read_text()

@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from .auto import auto_scenarios
-from .demo import ORDER_SERVICE, ORDER_SERVICE_REPO
+from .demo import EXAMPLES
 from .events import EventLog
 from .llm import LLMError
 from .pipeline import Status, load_stub, run_pipeline
@@ -22,6 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
 
     demo = commands.add_parser("demo", help="offline demo on the bundled order service")
+    demo.add_argument("--example", choices=sorted(EXAMPLES), default="order-service")
     demo.add_argument("--out", type=Path, help="write the markdown report here")
 
     run = commands.add_parser("run", help="run scenarios against a repo")
@@ -45,13 +46,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "demo":
-            repo = ORDER_SERVICE_REPO
-            scenario_files = sorted((ORDER_SERVICE / "scenarios").glob("*.py"))
-            llm, sandbox_name, setup = (
-                load_stub(ORDER_SERVICE / "llm_responses.json"),
-                "local",
-                None,
-            )
+            assets, repo = EXAMPLES[args.example]
+            scenario_files = sorted((assets / "scenarios").glob("*.py"))
+            llm, sandbox_name, setup = load_stub(assets / "llm_responses.json"), "local", None
         else:
             repo, scenario_files = args.repo, args.scenario
             llm = load_stub(args.stub) if args.stub else _live_llm()

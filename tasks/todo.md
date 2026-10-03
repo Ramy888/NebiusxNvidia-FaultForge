@@ -31,7 +31,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [x] T11 Dependency discovery
 - [x] T12 Scenario generation from templates
 - [x] T13 Tavily research (live call pending: Tavily key)
-- [ ] T14 Two more repos (one third-party)
+- [~] T14 Two more repos — webhook-service done; third-party repo still to choose
 - [ ] **Checkpoint D** — generation stable, or ship templates (Oct 16)
 
 ## Phase 4 — Product

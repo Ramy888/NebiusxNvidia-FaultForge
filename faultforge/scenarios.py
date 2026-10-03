@@ -65,7 +65,7 @@ from faultkit import FakeAPI, FaultyTransport, {fault_class}
 
 
 def test_{test_name}():
-    dependency = FakeAPI()
+    dependency = FakeAPI({fake_api_args})
     transport = FaultyTransport(dependency, {fault_expr})
     http = httpx.Client(transport=transport)
 {arrange}
@@ -85,11 +85,13 @@ Respond with JSON only:
 WRITE_SYSTEM = """You fill in a pytest template that injects one dependency fault.
 The template already provides `dependency` (a fake of the external API whose `.accepted` list
 records every request it processed) and `http` (an httpx.Client wired to it with the fault).
+`fake_api_args` configures the fake: e.g. `status=200, body={"status": "failed"}` makes every
+processed request answer HTTP 200 with that JSON merged into {"id": ..., "status": "accepted"}.
 Fill the parts so the test builds the application with `http`, performs the operation once, and
 asserts the invariant. Use only names that exist in the application source. Do not catch the
 assertion. Give assertions a message that states what went wrong in plain words.
 Respond with JSON only:
-{"title": "...", "test_name": "snake_case", "imports": "python import lines",
+{"title": "...", "test_name": "snake_case", "fake_api_args": "", "imports": "python import lines",
  "arrange": "python lines", "act": "python lines", "assertions": "python lines"}"""
 
 # Failures caused by the generated test itself, not by the application under the fault.
@@ -161,6 +163,7 @@ def _render(fault: str, fill: dict) -> Scenario:
         imports=str(fill.get("imports", "")).strip(),
         test_name=test_name,
         fault_expr=fault_expr,
+        fake_api_args=str(fill.get("fake_api_args", "")).strip(),
         arrange=_indent(fill.get("arrange", "")),
         act=_indent(fill.get("act", "")),
         assertions=_indent(fill.get("assertions", "")),

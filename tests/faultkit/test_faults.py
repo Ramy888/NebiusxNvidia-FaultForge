@@ -119,3 +119,12 @@ def test_faults_never_sleep():
     http.post(URL, json={})
 
     assert time.monotonic() - started < 0.5
+
+
+def test_fake_api_can_answer_with_a_custom_body_and_status():
+    api = FakeAPI(status=200, body={"status": "failed"})
+
+    response = client(api).get(URL + "/ch_1")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"

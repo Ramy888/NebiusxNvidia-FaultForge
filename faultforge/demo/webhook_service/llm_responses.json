@@ -1,0 +1,9 @@
+{
+  "plan": [
+    "{\"strategies\": [{\"id\": \"verify_or_fail\", \"summary\": \"Fail the webhook unless the provider confirms the charge\", \"approach\": \"raise_for_status() and require an explicit status, so the provider redelivers.\"}, {\"id\": \"unknown_default\", \"summary\": \"Treat a missing status as unknown instead of succeeded\", \"approach\": \"Change the default so an unreadable answer never counts as paid.\"}]}"
+  ],
+  "write": [
+    "{\"files\": {\"payments/verifier.py\": \"\\\"\\\"\\\"Checks a charge with the payment provider before we trust a webhook.\\\"\\\"\\\"\\n\\nimport httpx\\n\\n\\nclass ChargeVerifier:\\n    def __init__(self, http: httpx.Client, base_url: str):\\n        self._http = http\\n        self._base_url = base_url.rstrip(\\\"/\\\")\\n\\n    def charge_status(self, charge_id: str) -> str:\\n        response = self._http.get(f\\\"{self._base_url}/charges/{charge_id}\\\", timeout=5.0)\\n        response.raise_for_status()\\n        return response.json()[\\\"status\\\"]\\n\"}}",
+    "{\"files\": {\"payments/verifier.py\": \"\\\"\\\"\\\"Checks a charge with the payment provider before we trust a webhook.\\\"\\\"\\\"\\n\\nimport httpx\\n\\n\\nclass ChargeVerifier:\\n    def __init__(self, http: httpx.Client, base_url: str):\\n        self._http = http\\n        self._base_url = base_url.rstrip(\\\"/\\\")\\n\\n    def charge_status(self, charge_id: str) -> str:\\n        response = self._http.get(f\\\"{self._base_url}/charges/{charge_id}\\\", timeout=5.0)\\n        # Webhooks are only sent for completed charges, so assume success unless told otherwise.\\n        return response.json().get(\\\"status\\\", \\\"unknown\\\")\\n\"}}"
+  ]
+}

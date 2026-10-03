@@ -14,3 +14,10 @@ EXAMPLES = {
     "order-service": (ORDER_SERVICE, ORDER_SERVICE_REPO),
     "webhook-service": (WEBHOOK_SERVICE, WEBHOOK_SERVICE_REPO),
 }
+
+DESCRIPTIONS = {
+    "order-service": "Shop backend that places orders with a fulfillment provider and retries "
+    "requests that time out.",
+    "webhook-service": "Payment webhook handler that checks each charge with the payment provider "
+    "before marking an order paid.",
+}

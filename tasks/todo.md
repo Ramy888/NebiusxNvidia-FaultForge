@@ -35,7 +35,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [ ] **Checkpoint D** — generation stable, or ship templates (Oct 16)
 
 ## Phase 4 — Product
-- [ ] T15 API and event stream
+- [x] T15 API and event stream
 - [ ] T16 UI: run view and attempt tree
 - [ ] T17 UI: evidence view
 - [ ] T18 Pull request with evidence

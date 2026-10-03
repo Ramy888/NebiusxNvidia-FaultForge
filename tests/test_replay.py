@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from faultforge.demo import ORDER_SERVICE
 from faultforge.events import EventLog
 from faultforge.models import Candidate, Scenario
 from faultforge.replay import Outcome, replay
@@ -22,7 +23,7 @@ TIMEOUT_SCENARIO = Scenario(
     id="timeout_duplicate",
     title="Provider accepts the order but the response times out",
     fault="timeout",
-    test_code=(ROOT / "tests" / "fixtures" / "scenarios" / "timeout_duplicate.py").read_text(),
+    test_code=(ORDER_SERVICE / "scenarios" / "timeout_duplicate.py").read_text(),
 )
 GOOD = fixture_candidate("idempotency_key", "orders/fulfillment.py")
 NO_RETRY = fixture_candidate("no_retry", "orders/service.py")

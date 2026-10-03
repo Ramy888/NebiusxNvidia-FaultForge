@@ -18,8 +18,8 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [x] T4 Sandbox protocol + LocalSandbox
 - [x] T5 Replay matrix and scoring
 - [x] T6 LLM protocol, stub, repair generation
-- [ ] T7 CLI end-to-end on the example repo
-- [ ] **Checkpoint B** — offline end-to-end (target Oct 6)
+- [x] T7 CLI end-to-end on the example repo
+- [x] **Checkpoint B** — offline end-to-end (target Oct 6)
 
 ## Phase 2 — Live platform
 - [ ] T8 Token Factory client + spike

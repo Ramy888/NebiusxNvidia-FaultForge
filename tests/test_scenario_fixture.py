@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from faultforge.demo import ORDER_SERVICE
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -11,7 +13,7 @@ def run_scenario_against_example(tmp_path: Path) -> subprocess.CompletedProcess:
     shutil.copytree(ROOT / "examples" / "order-service", repo)
     shutil.copytree(ROOT / "faultforge" / "faultkit", repo / "faultkit")
     shutil.copy(
-        ROOT / "tests" / "fixtures" / "scenarios" / "timeout_duplicate.py",
+        ORDER_SERVICE / "scenarios" / "timeout_duplicate.py",
         repo / "tests" / "test_ff_timeout_duplicate.py",
     )
     return subprocess.run(

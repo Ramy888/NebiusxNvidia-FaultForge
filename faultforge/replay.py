@@ -94,6 +94,48 @@ def unified_diff(source: Path, files: dict[str, str]) -> tuple[str, int]:
     return "".join(chunks), changed
 
 
+class _Runner:
+    """Runs the existing suite and every scenario as parallel branches from one snapshot."""
+
+    def __init__(self, sandbox: Sandbox, scenarios: list[Scenario], events: EventLog, pool):
+        self.sandbox, self.scenarios, self.events, self.pool = sandbox, scenarios, events, pool
+
+    def check(self, snapshot: Snapshot, branch: str, name: str, command: str) -> Check:
+        self.events.emit("run_started", branch=branch, check=name, snapshot=snapshot.id)
+        result = self.sandbox.run(snapshot, command, timeout=CHECK_TIMEOUT_S)
+        outcome, message = classify(result)
+        self.events.emit(
+            "run_finished",
+            branch=branch,
+            check=name,
+            outcome=outcome.value,
+            message=message,
+            snapshot=result.snapshot.id,
+            duration_s=round(result.duration_s, 3),
+        )
+        output = (result.stdout + result.stderr)[-OUTPUT_TAIL_CHARS:]
+        return Check(name, outcome, message, result.snapshot.id, result.duration_s, output)
+
+    def branch(self, snapshot: Snapshot, branch: str) -> Branch:
+        existing = self.pool.submit(self.check, snapshot, branch, "existing_tests", EXISTING_TESTS)
+        per_scenario = {
+            s.id: self.pool.submit(self.check, snapshot, branch, s.id, f"{PYTEST} {s.test_path}")
+            for s in self.scenarios
+        }
+        return Branch(existing.result(), {k: f.result() for k, f in per_scenario.items()})
+
+
+def run_baseline(
+    sandbox: Sandbox,
+    base: Snapshot,
+    scenarios: list[Scenario],
+    events: EventLog,
+    max_workers: int = 4,
+) -> Branch:
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return _Runner(sandbox, scenarios, events, pool).branch(base, "baseline")
+
+
 def replay(
     sandbox: Sandbox,
     base: Snapshot,
@@ -102,6 +144,7 @@ def replay(
     candidates: list[Candidate],
     events: EventLog,
     max_workers: int = 4,
+    baseline: Branch | None = None,
 ) -> ReplayReport:
     events.emit(
         "replay_started",
@@ -110,34 +153,11 @@ def replay(
         candidates=[c.id for c in candidates],
     )
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-
-        def check(snapshot: Snapshot, branch: str, name: str, command: str) -> Check:
-            events.emit("run_started", branch=branch, check=name, snapshot=snapshot.id)
-            result = sandbox.run(snapshot, command, timeout=CHECK_TIMEOUT_S)
-            outcome, message = classify(result)
-            events.emit(
-                "run_finished",
-                branch=branch,
-                check=name,
-                outcome=outcome.value,
-                message=message,
-                snapshot=result.snapshot.id,
-                duration_s=round(result.duration_s, 3),
-            )
-            output = (result.stdout + result.stderr)[-OUTPUT_TAIL_CHARS:]
-            return Check(name, outcome, message, result.snapshot.id, result.duration_s, output)
-
-        def run_branch(snapshot: Snapshot, branch: str) -> Branch:
-            existing = pool.submit(check, snapshot, branch, "existing_tests", EXISTING_TESTS)
-            per_scenario = {
-                s.id: pool.submit(check, snapshot, branch, s.id, f"{PYTEST} {s.test_path}")
-                for s in scenarios
-            }
-            return Branch(existing.result(), {k: f.result() for k, f in per_scenario.items()})
-
-        baseline = run_branch(base, "baseline")
+        runner = _Runner(sandbox, scenarios, events, pool)
+        if baseline is None:
+            baseline = runner.branch(base, "baseline")
         results = [
-            _evaluate(sandbox, base, source, c, baseline, run_branch, events) for c in candidates
+            _evaluate(sandbox, base, source, c, baseline, runner.branch, events) for c in candidates
         ]
 
     report = ReplayReport(baseline, results)

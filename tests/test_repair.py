@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from faultforge.demo import ORDER_SERVICE
 from faultforge.events import EventLog
 from faultforge.llm import StubLLM, parse_json
 from faultforge.models import Scenario
@@ -14,7 +15,7 @@ SCENARIO = Scenario(
     id="timeout_duplicate",
     title="Provider accepts the order but the response times out",
     fault="timeout",
-    test_code=(ROOT / "tests" / "fixtures" / "scenarios" / "timeout_duplicate.py").read_text(),
+    test_code=(ORDER_SERVICE / "scenarios" / "timeout_duplicate.py").read_text(),
 )
 FAILURE = "AssertionError: one order created 2 fulfillments at the provider"
 STRATEGIES = json.dumps(

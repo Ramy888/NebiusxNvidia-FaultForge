@@ -90,6 +90,17 @@ def create_app(
             raise HTTPException(404, "unknown run")
         return run
 
+    @app.get("/api/info")
+    def info() -> dict:
+        if mode == "live":
+            description = (
+                "Live: NVIDIA Nemotron 3 Ultra and Nano on Nebius Token Factory, "
+                f"{'Token Factory Sandboxes' if sandbox_name == 'contree' else 'local sandbox'}"
+            )
+        else:
+            description = "Demo: scripted model responses, no Nemotron calls, local sandbox"
+        return {"mode": mode, "description": description}
+
     @app.get("/api/examples")
     def examples() -> list[dict]:
         return [{"id": name, "description": DESCRIPTIONS[name]} for name in sorted(EXAMPLES)]
@@ -189,7 +200,7 @@ def _execute(run: Run, mode: str, sandbox_name: str = "local") -> None:
             scenarios = [scenario_from_file(p) for p in sorted((assets / "scenarios").glob("*.py"))]
         if not scenarios:
             raise RuntimeError("no testable scenarios were found")
-        # Demo mode replays recorded, reviewed patches, so the local sandbox is acceptable there.
+        # Demo mode replays scripted, reviewed patches, so the local sandbox is acceptable there.
         sandbox = _sandbox(sandbox_name) if mode == "live" else LocalSandbox()
         remote = mode == "live" and sandbox_name == "contree"
         setup = "python -m pip install -q httpx pytest" if remote else None

@@ -58,7 +58,7 @@ flowchart LR
 
 Nemotron models are region-scoped on Token Factory, so FaultForge keeps one OpenAI-compatible client per role (`faultforge/llm/token_factory.py`). Model output is consumed as JSON and validated; malformed output is retried once.
 
-> **Status:** the full loop runs offline today with recorded model responses and a local sandbox (`faultforge demo`). The Token Factory client and the Sandboxes adapter are built against the real APIs and tested with fakes; the live runs are being verified — see [`docs/spikes/`](docs/spikes).
+> **Status:** the full loop runs offline today with scripted (hand-written) model responses and a local sandbox (`faultforge demo`). The Token Factory client and the Sandboxes adapter are built against the real APIs and tested with fakes; the live runs are being verified — see [`docs/spikes/`](docs/spikes).
 
 ## Quick start (offline, no keys)
 

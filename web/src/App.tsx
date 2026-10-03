@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import { fetchExamples, fetchRun, followRun, startRun } from "./api";
+import { fetchExamples, fetchInfo, fetchRun, followRun, startRun } from "./api";
 import { AttemptTree } from "./components/AttemptTree";
 import { Evidence } from "./components/Evidence";
 import { PhaseBar } from "./components/PhaseBar";
@@ -15,6 +15,7 @@ function reducer(model: RunModel, action: Action): RunModel {
 
 export default function App() {
   const [examples, setExamples] = useState<Example[]>([]);
+  const [info, setInfo] = useState<{ mode: string; description: string } | null>(null);
   const [example, setExample] = useState<string>("");
   const [model, dispatch] = useReducer(reducer, undefined, initialModel);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -25,6 +26,7 @@ export default function App() {
   const stop = useRef<(() => void) | null>(null);
 
   useEffect(() => {
+    fetchInfo().then(setInfo, () => setInfo(null));
     fetchExamples()
       .then((list) => {
         setExamples(list);
@@ -69,10 +71,11 @@ export default function App() {
         <h1>Find out how your app fails when its dependencies misbehave.</h1>
         <p className="lede">
           FaultForge injects timeouts, rate limits, malformed responses and duplicate deliveries,
-          shows exactly what breaks, then replays every failure against competing repairs.
-          Reasoning by NVIDIA Nemotron on Nebius Token Factory; every attempt runs in its own
-          sandbox branch.
+          shows exactly what breaks, then replays every failure against competing repairs. Built
+          on NVIDIA Nemotron and Nebius Token Factory; every attempt runs in its own sandbox
+          branch.
         </p>
+        {info && <p className={`mode mode-${info.mode}`}>{info.description}</p>}
       </header>
 
       <section className="panel picker" aria-labelledby="picker-heading">

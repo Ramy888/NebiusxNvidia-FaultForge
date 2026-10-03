@@ -14,6 +14,9 @@ async function json<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export const fetchInfo = () =>
+  fetch("/api/info").then((r) => json<{ mode: string; description: string }>(r));
+
 export const fetchExamples = () => fetch("/api/examples").then((r) => json<Example[]>(r));
 
 export const startRun = (example: string) =>

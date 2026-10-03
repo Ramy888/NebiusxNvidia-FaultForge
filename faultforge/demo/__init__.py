@@ -1,4 +1,4 @@
-"""Bundled demo: the order-service example with recorded model responses for offline runs."""
+"""Bundled demo: the order-service example with scripted model responses for offline runs."""
 
 from pathlib import Path
 

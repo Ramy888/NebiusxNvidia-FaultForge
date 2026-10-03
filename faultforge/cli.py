@@ -37,7 +37,9 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         help="scenario test file (repeatable); omit to discover and generate scenarios",
     )
-    run.add_argument("--stub", type=Path, help="recorded model responses instead of Nemotron")
+    run.add_argument(
+        "--stub", type=Path, help="scripted model responses (JSON) instead of Nemotron"
+    )
     run.add_argument(
         "--sandbox",
         choices=["local", "contree"],

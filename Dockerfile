@@ -17,7 +17,7 @@ COPY examples/ examples/
 COPY --from=web /web/dist web/dist
 RUN useradd --create-home faultforge && chown -R faultforge /app
 USER faultforge
-# demo = recorded model responses, no keys needed. live = Nemotron + Token Factory Sandboxes.
+# demo = scripted model responses, no keys, no Nemotron calls. live = Nemotron + Token Factory Sandboxes.
 ENV FAULTFORGE_MODE=demo PORT=8000
 EXPOSE 8000
 CMD ["sh", "-c", "uv run --no-sync uvicorn faultforge.api:create_app --factory --host 0.0.0.0 --port ${PORT}"]

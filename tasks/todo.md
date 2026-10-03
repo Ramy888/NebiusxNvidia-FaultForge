@@ -25,14 +25,14 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [x] T8 Token Factory client + spike (live run pending: API key)
 - [x] T9 ContreeSandbox + spike (live run pending: Sandboxes access)
 - [~] T10 Live repair loop — CLI wiring done; 5 live runs + prompt tuning pending credentials
-- [ ] **Checkpoint C** — go / no-go on the track (Oct 7–9)
+- [ ] **Checkpoint C** — go / no-go on the track (Oct 7–9): needs credentials
 
 ## Phase 3 — Scenario generation
 - [x] T11 Dependency discovery
 - [x] T12 Scenario generation from templates
 - [x] T13 Tavily research (live call pending: Tavily key)
 - [~] T14 Two more repos — webhook-service done; third-party repo still to choose
-- [ ] **Checkpoint D** — generation stable, or ship templates (Oct 16)
+- [~] **Checkpoint D** — template-based generation built; stability needs live Nemotron runs (Oct 16)
 
 ## Phase 4 — Product
 - [x] T15 API and event stream
@@ -41,7 +41,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [x] T18 Pull request with evidence
 - [x] T19 Public demo limits (independent security review still recommended)
 - [~] T20 Deploy on Nebius Serverless — Dockerfile built and smoke-tested locally; deploy needs Ramy
-- [ ] **Checkpoint E** — demo-ready (Oct 24)
+- [ ] **Checkpoint E** — demo-ready (Oct 24): offline demo ready; live demo not yet
 
 ## Phase 5 — Submission
 - [x] T21 README (with architecture diagram), feedback draft, video script draft

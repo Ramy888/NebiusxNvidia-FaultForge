@@ -94,3 +94,11 @@ def test_pull_request_preview_for_a_repaired_run(client):
 
 def test_pull_request_for_an_unfinished_or_unknown_run(client):
     assert client.post("/api/runs/nope/pull-request").status_code == 404
+
+
+def test_info_says_honestly_which_mode_is_running(client):
+    info = client.get("/api/info").json()
+
+    assert info["mode"] == "demo"
+    assert "scripted" in info["description"]
+    assert "no Nemotron calls" in info["description"]

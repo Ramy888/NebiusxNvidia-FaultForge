@@ -1,0 +1,15 @@
+.venv
+.git
+**/__pycache__
+**/.pytest_cache
+web/node_modules
+web/dist
+.env
+.env.*
+tasks
+docs
+tests
+scripts
+.vscode
+nebius-nvidia-global-ai-hackathon.md
+meteor-gliders-agents--27-9.json

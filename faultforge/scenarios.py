@@ -1,6 +1,7 @@
 """Failure scenarios: executable pytest files that use the fault kit."""
 
 import ast
+import re
 from pathlib import Path
 
 from .codefix import add_missing_imports, extract_code, normalize_code, top_level_symbols
@@ -273,12 +274,36 @@ def is_test_bug(message: str) -> bool:
     return message.startswith("TypeError") and any(n in message for n in FAULT_KIT_NAMES)
 
 
-def scenario_is_broken(check) -> bool:
-    """A scenario that errors, times out or fails because of its own bug proves nothing."""
+_FRAME = re.compile(r"^(\S+\.py):\d+: in ", re.MULTILINE)
+ASSERTION_FAILURES = ("AssertionError", "assert ", "Failed: DID NOT RAISE")
+
+
+def raised_in_test_code(output: str, test_path: str) -> bool:
+    """True when the innermost traceback frame is the test file itself, not application code."""
+    first_error = output.find("\nE ")
+    frames = _FRAME.findall(output[: first_error if first_error != -1 else len(output)])
+    return bool(frames) and frames[-1].endswith(test_path)
+
+
+def scenario_is_broken(check, test_path: str | None = None) -> bool:
+    """A scenario that errors, times out or fails because of its own bug proves nothing.
+
+    An exception other than an assertion, raised by the test's own code (e.g. KeyError on a
+    dict the test built itself), is a test bug; the same exception raised inside application
+    code is a genuine failure under the fault.
+    """
     from .replay import Outcome
 
-    return check.outcome in (Outcome.ERROR, Outcome.TIMED_OUT) or (
-        check.outcome is Outcome.FAILED and is_test_bug(check.message)
+    if check.outcome in (Outcome.ERROR, Outcome.TIMED_OUT):
+        return True
+    if check.outcome is not Outcome.FAILED:
+        return False
+    if is_test_bug(check.message):
+        return True
+    return (
+        test_path is not None
+        and not check.message.startswith(ASSERTION_FAILURES)
+        and raised_in_test_code(check.output, test_path)
     )
 
 

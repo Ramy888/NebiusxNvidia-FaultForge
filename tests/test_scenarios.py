@@ -162,7 +162,7 @@ def test_broken_scenarios_are_sent_back_with_the_error_and_fixed():
     assert {s.fault for s in kept} == {"timeout", "malformed"}
 
 
-def test_a_test_that_fails_even_without_the_fault_is_sent_back_and_dropped_if_unfixed():
+def test_a_test_crashing_in_its_own_code_is_sent_back_and_dropped_if_unfixed():
     from faultforge.auto import validate_scenarios
     from faultforge.scenarios import ScenarioWriter
 
@@ -192,7 +192,7 @@ def test_lookup_of_an_order_that_was_never_created():
         kept = validate_scenarios(writer, sandbox, ORDER_SERVICE_REPO, scenarios, events)
 
     assert kept == []
-    assert "without the fault" in writer.llm.calls[-1].user
+    assert "KeyError" in writer.llm.calls[-1].user
 
 
 def test_a_genuine_scenario_passes_its_control_run_and_is_kept():
@@ -211,7 +211,7 @@ def test_a_genuine_scenario_passes_its_control_run_and_is_kept():
     assert [s.fault for s in kept] == ["timeout"]
 
 
-def test_a_test_expecting_an_error_from_the_fault_survives_the_control_run():
+def test_a_test_expecting_an_error_from_the_fault_is_kept():
     from faultforge.auto import validate_scenarios
     from faultforge.scenarios import ScenarioWriter
 
@@ -240,3 +240,43 @@ def test_garbled_response_raises():
         kept = validate_scenarios(writer, sandbox, ORDER_SERVICE_REPO, writer.write_all(), events)
 
     assert [s.fault for s in kept] == ["malformed"]
+
+
+def test_an_exception_raised_inside_application_code_is_a_genuine_failure():
+    from faultforge.replay import Check, Outcome
+    from faultforge.scenarios import scenario_is_broken
+
+    output = (
+        "tests/test_ff_x.py:12: in test_x\n    service.place_order()\n"
+        "orders/fulfillment.py:20: in create_fulfillment\n    return response.json()\n"
+        "E   json.decoder.JSONDecodeError: Unterminated string\n"
+    )
+    check = Check(
+        "x", Outcome.FAILED, "json.decoder.JSONDecodeError: Unterminated string", "s", 0.1, output
+    )
+
+    assert not scenario_is_broken(check, "tests/test_ff_x.py")
+
+
+def test_an_exception_raised_in_the_test_file_itself_is_a_test_bug():
+    from faultforge.replay import Check, Outcome
+    from faultforge.scenarios import scenario_is_broken
+
+    output = (
+        "tests/test_ff_x.py:30: in test_x\n    assert fake.accepted[0]['id']\nE   KeyError: 'id'\n"
+    )
+    check = Check("x", Outcome.FAILED, "KeyError: 'id'", "s", 0.1, output)
+
+    assert scenario_is_broken(check, "tests/test_ff_x.py")
+
+
+def test_a_fault_dependent_assertion_is_never_treated_as_a_test_bug():
+    from faultforge.replay import Check, Outcome
+    from faultforge.scenarios import scenario_is_broken
+
+    output = (
+        "tests/test_ff_x.py:30: in test_x\n    assert not paid\nE   AssertionError: marked paid\n"
+    )
+    check = Check("x", Outcome.FAILED, "AssertionError: marked paid", "s", 0.1, output)
+
+    assert not scenario_is_broken(check, "tests/test_ff_x.py")

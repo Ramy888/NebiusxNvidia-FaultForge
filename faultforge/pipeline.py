@@ -141,7 +141,7 @@ def _drop_broken_scenarios(scenarios: list[Scenario], baseline: Branch, events) 
     kept = []
     for scenario in scenarios:
         check = baseline.scenarios[scenario.id]
-        if scenario_is_broken(check):
+        if scenario_is_broken(check, scenario.test_path):
             events.emit("scenario_discarded", scenario=scenario.id, reason=check.message)
         else:
             kept.append(scenario)

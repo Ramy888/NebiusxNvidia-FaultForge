@@ -19,6 +19,12 @@ least one reproduced failure fixed.
 
 | 9 | triage each reproduced failure: application bug or test mistake | **6 / 8, all genuine** (order 2 / 4, webhook 4 / 4) |
 
+| 10 | fault kit: `FakeAPI.created` (objects with ids) vs `.accepted` (request bodies) | order service **2 / 2** |
+
+Iteration 10's cause: every failed order-service run had the correct idempotency repair, undone by
+a generated test reading `["id"]` from `.accepted` (request bodies). The test bug only appeared
+after the repair, so validation could not see it; fixing the fault kit's API and docs did.
+
 Iteration 9's winners were all read: every one changes the dependency path (`Idempotency-Key`
 header; `raise_for_status()` / `if not response.is_success` in the payment verifier). Triage
 flagged 16 generated tests as test mistakes across the 8 runs and sent them back to the writer.
@@ -45,5 +51,5 @@ What each lesson was:
   right but rejected valid fault-conditional tests.
 - **Second attempts work best with the reasoning model**, told why the first attempt failed.
 
-Typical token use per run: ~3–4k prompt / ~4–5k completion tokens on Ultra for planning, ~6k / ~1k
+With triage, a run now costs about $0.08 (most of it Ultra). Typical token use per run before triage: ~3–4k prompt / ~4–5k completion tokens on Ultra for planning, ~6k / ~1k
 on Nano for writing, plus up to ~17k completion tokens on Ultra when a second attempt is needed.

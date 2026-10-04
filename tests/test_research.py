@@ -8,7 +8,7 @@ from faultforge.discovery import CallSite, Dependency
 from faultforge.events import EventLog
 from faultforge.llm import StubLLM
 from faultforge.research import TavilyResearcher, research_dependency
-from tests.test_scenarios import GOOD_FILL
+from tests.test_scenarios import GOOD_FILL, TRIAGE_BUG
 
 DEPENDENCY = Dependency(
     name="Stripe payments API",
@@ -153,7 +153,11 @@ def test_cli_without_scenarios_runs_auto_mode(tmp_path, monkeypatch):
     stub = tmp_path / "stub.json"
     stub.write_text(
         json.dumps(
-            {"plan": [analysis, plan] + recorded["plan"], "write": [GOOD_FILL] + recorded["write"]}
+            {
+                # discovery, scenario plan, triage of the reproduced failure, repair plan
+                "plan": [analysis, plan, TRIAGE_BUG] + recorded["plan"],
+                "write": [GOOD_FILL] + recorded["write"],
+            }
         )
     )
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)

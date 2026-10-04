@@ -158,7 +158,8 @@ def test_broken_scenarios_are_sent_back_with_the_error_and_fixed():
         kept = validate_scenarios(writer, sandbox, ORDER_SERVICE_REPO, scenarios, events)
 
     fixed = [e for e in events.items() if e.type == "scenario_fixed"]
-    assert fixed and "NameError" in writer.llm.calls[-1].user
+    fix_calls = [c for c in writer.llm.calls if c.role == "fix"]
+    assert fixed and "NameError" in fix_calls[-1].user
     assert {s.fault for s in kept} == {"timeout", "malformed"}
 
 
@@ -280,3 +281,54 @@ def test_a_fault_dependent_assertion_is_never_treated_as_a_test_bug():
     check = Check("x", Outcome.FAILED, "AssertionError: marked paid", "s", 0.1, output)
 
     assert not scenario_is_broken(check, "tests/test_ff_x.py")
+
+
+TRIAGE_BUG = json.dumps({"verdict": "application_bug", "reason": "retry without idempotency"})
+TRIAGE_MISTAKE = json.dumps(
+    {"verdict": "test_mistake", "reason": "the test reads an order it never created"}
+)
+
+
+def test_triage_sends_a_test_mistake_back_to_the_writer_with_the_reason():
+    from faultforge.auto import validate_scenarios
+    from faultforge.scenarios import ScenarioWriter
+
+    plan = json.dumps({"scenarios": [{"fault": "timeout", "invariant": "one fulfillment"}]})
+    events = EventLog()
+    writer = ScenarioWriter(
+        StubLLM(plan=[plan, TRIAGE_MISTAKE, TRIAGE_BUG], write=[GOOD_FILL, GOOD_FILL]),
+        ORDER_SERVICE_REPO,
+        DEPENDENCY,
+        "",
+        events,
+    )
+
+    with LocalSandbox() as sandbox:
+        kept = validate_scenarios(writer, sandbox, ORDER_SERVICE_REPO, writer.write_all(), events)
+
+    assert [s.fault for s in kept] == ["timeout"]
+    assert any(
+        e.type == "scenario_triaged" and e.data["verdict"] == "test_mistake" for e in events.items()
+    )
+    assert "reads an order it never created" in writer.llm.calls[-2].user
+
+
+def test_triage_keeps_an_application_bug():
+    from faultforge.auto import validate_scenarios
+    from faultforge.scenarios import ScenarioWriter
+
+    plan = json.dumps({"scenarios": [{"fault": "timeout", "invariant": "one fulfillment"}]})
+    events = EventLog()
+    writer = ScenarioWriter(
+        StubLLM(plan=[plan, TRIAGE_BUG], write=[GOOD_FILL]),
+        ORDER_SERVICE_REPO,
+        DEPENDENCY,
+        "",
+        events,
+    )
+
+    with LocalSandbox() as sandbox:
+        kept = validate_scenarios(writer, sandbox, ORDER_SERVICE_REPO, writer.write_all(), events)
+
+    assert [s.fault for s in kept] == ["timeout"]
+    assert len([c for c in writer.llm.calls if c.role == "fix"]) == 0

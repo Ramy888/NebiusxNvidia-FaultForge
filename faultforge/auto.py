@@ -5,9 +5,9 @@ from pathlib import Path
 
 from .discovery import Dependency, discover
 from .events import EventLog
-from .llm import LLM
+from .llm import LLM, LLMError, parse_json
 from .models import Scenario
-from .replay import run_baseline
+from .replay import Outcome, run_baseline
 from .research import Research, TavilyResearcher, research_dependency
 from .sandbox import Sandbox
 from .scenarios import ScenarioWriter, scenario_is_broken
@@ -51,7 +51,7 @@ def validate_scenarios(
 ) -> list[Scenario]:
     """Keep generated tests that are sound; a broken one gets one fix attempt."""
     kept, retry = [], []
-    for scenario, problem in _problems(sandbox, source, scenarios, events, setup):
+    for scenario, problem in _problems(writer, sandbox, source, scenarios, events, setup):
         if problem is None:
             kept.append(scenario)
             continue
@@ -60,7 +60,7 @@ def validate_scenarios(
             events.emit("scenario_discarded", scenario=scenario.id, reason=problem[:400])
         else:
             retry.append(fixed)
-    for scenario, problem in _problems(sandbox, source, retry, events, setup):
+    for scenario, problem in _problems(writer, sandbox, source, retry, events, setup):
         if problem is None:
             kept.append(scenario)
         else:
@@ -68,7 +68,9 @@ def validate_scenarios(
     return kept
 
 
-def _problems(sandbox, source, scenarios, events, setup) -> list[tuple[Scenario, str | None]]:
+def _problems(
+    writer, sandbox, source, scenarios, events, setup
+) -> list[tuple[Scenario, str | None]]:
     if not scenarios:
         return []
     base = prepare_workspace(sandbox, source, scenarios, setup)
@@ -76,6 +78,41 @@ def _problems(sandbox, source, scenarios, events, setup) -> list[tuple[Scenario,
     results = []
     for scenario in scenarios:
         check = baseline.scenarios[scenario.id]
-        broken = scenario_is_broken(check, scenario.test_path)
-        results.append((scenario, (check.output or check.message) if broken else None))
+        if scenario_is_broken(check, scenario.test_path):
+            results.append((scenario, check.output or check.message))
+        elif check.outcome is Outcome.FAILED:
+            results.append((scenario, triage(writer, scenario, check, events)))
+        else:
+            results.append((scenario, None))
     return results
+
+
+TRIAGE_SYSTEM = """A failure-injection test failed against a Python application. Decide whether
+the failure shows a genuine bug in how the application handles the dependency failure, or a
+mistake in the test itself: for example the test reads data it never created, expects the fake
+dependency to behave differently than documented, or asserts something the application never
+promised. Respond with JSON only:
+{"verdict": "application_bug" or "test_mistake", "reason": "one sentence"}"""
+
+
+def triage(writer, scenario: Scenario, check, events: EventLog) -> str | None:
+    """Ask the reasoning model whether a reproduced failure is the app's fault or the test's.
+
+    Returns a problem description for a test mistake, or None for a genuine application bug.
+    Unclear answers count as application bugs: the repair phase will judge them anyway.
+    """
+    prompt = (
+        f"{writer.context}\n\n## Failing test {scenario.test_path}\n```python\n"
+        f"{scenario.test_code}```\n\n## pytest output\n```\n{check.output[-3000:]}\n```"
+    )
+    try:
+        answer = parse_json(writer.llm.complete("plan", TRIAGE_SYSTEM, prompt))
+    except LLMError as error:
+        events.emit("scenario_triaged", scenario=scenario.id, verdict="unknown", reason=str(error))
+        return None
+    verdict = str(answer.get("verdict", "application_bug"))
+    reason = str(answer.get("reason", ""))
+    events.emit("scenario_triaged", scenario=scenario.id, verdict=verdict, reason=reason)
+    if verdict != "test_mistake":
+        return None
+    return f"Review found a mistake in the test, not the application: {reason}\n{check.output}"

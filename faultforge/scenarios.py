@@ -98,6 +98,10 @@ PLAN_SYSTEM = """You design failure-injection tests for one HTTP dependency of a
 Supported faults: timeout, rate_limit, malformed, duplicate_delivery.
 Pick the faults that matter for this dependency and state, for each, the invariant a correct
 application must keep. Use the research notes on how the real service behaves when relevant.
+State invariants about side effects at the dependency and about the application's recorded
+state (e.g. "the order is not marked paid", "exactly one fulfillment exists"), never about how
+many requests were sent: retrying is legitimate. Raising an error the caller can retry is an
+acceptable outcome; recording a wrong result is not.
 Respond with JSON only:
 {"scenarios": [{"fault": "timeout", "invariant": "one sentence"}]}"""
 
@@ -106,6 +110,10 @@ application and asserts one invariant. Build the application's real classes, giv
 httpx.Client whose transport is a FaultyTransport around a FakeAPI. Perform the user operation
 once. Use only names that exist in the application source and the fault kit. The test must fail
 only when the application breaks the invariant; give each assertion a plain-words message.
+Count side effects with len(fake.accepted), never requests: a retry legitimately sends the
+request again, and an idempotency key makes the fake ignore the repeat. If raising an error is
+an acceptable outcome, wrap the operation in `try: ... except Exception: pass` and assert on the
+resulting state afterwards.
 Start the file with a docstring: \"\"\"FaultForge scenario: <what goes wrong>\"\"\".
 Reply with exactly one ```python code block containing the complete file, nothing else."""
 
@@ -255,6 +263,11 @@ def build_scenario(fault: str, raw: str, invariant: str, symbols: dict[str, str]
 
 def is_test_bug(message: str) -> bool:
     if any(marker in message for marker in TEST_BUG_ERRORS):
+        return True
+    # Calling something that does not exist in httpx, pytest or the fault kit.
+    if message.startswith("AttributeError: module '") and any(
+        f"module '{m}'" in message for m in ("httpx", "pytest", "faultkit")
+    ):
         return True
     # A TypeError about the fault kit's own API means the generated test misused it.
     return message.startswith("TypeError") and any(n in message for n in FAULT_KIT_NAMES)

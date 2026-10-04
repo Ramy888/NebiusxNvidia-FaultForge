@@ -27,15 +27,17 @@ class PullRequestPlan:
 
 def plan_pull_request(result: PipelineResult, found=None) -> PullRequestPlan:
     winner = result.winner
-    if winner is None or result.target is None:
+    if winner is None:
         raise PullRequestError("no verified repair to propose")
-    target = result.target
+    fixed = [s for s in result.scenarios if s.id in winner.fixed]
+    faults = sorted({s.fault.replace("_", " ") for s in fixed})
     return PullRequestPlan(
         branch=f"faultforge/{winner.candidate.id}",
-        title=f"Fix {target.fault.replace('_', ' ')} failure: {winner.candidate.summary}"[:120],
+        title=f"Fix {' and '.join(faults)} failure: {winner.candidate.summary}"[:120],
         body=render_markdown(result, found)
-        + "\n---\nOpened by FaultForge. The regression test keeps this failure fixed.\n",
-        files=winner.candidate.files | {target.test_path: target.test_code},
+        + "\n---\nOpened by FaultForge. The regression tests keep these failures fixed.\n",
+        # Regression tests only for the failures this patch actually fixes.
+        files=winner.candidate.files | {s.test_path: s.test_code for s in fixed},
         support_files=faultkit_files(),
     )
 

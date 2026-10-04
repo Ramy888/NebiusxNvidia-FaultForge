@@ -170,3 +170,66 @@ def test_cli_can_dump_everything_for_debugging(tmp_path):
     data = json.loads(dump.read_text())
     assert data["result"]["scenarios"][0]["test_code"]
     assert any(e["type"] == "candidate_applied" for e in data["events"])
+
+
+# --- Live-run findings (2026-10-04) -----------------------------------------------------------
+
+
+def test_misusing_httpx_or_the_fault_kit_by_attribute_is_a_test_bug():
+    from faultforge.scenarios import is_test_bug
+
+    assert is_test_bug("AttributeError: module 'httpx' has no attribute 'ResponseError'")
+    assert not is_test_bug("AttributeError: 'NoneType' object has no attribute 'status'")
+
+
+def _order_pipeline(llm, scenarios):
+    from faultforge.demo import ORDER_SERVICE_REPO
+
+    events = EventLog()
+    with LocalSandbox() as sandbox:
+        result = run_pipeline(ORDER_SERVICE_REPO, scenarios, llm, sandbox, events)
+    return result, events
+
+
+def _demo_scenarios():
+    from faultforge.demo import ORDER_SERVICE
+    from faultforge.scenarios import scenario_from_file
+
+    timeout = scenario_from_file(ORDER_SERVICE / "scenarios" / "timeout_duplicate.py")
+    unrelated = Scenario(
+        "aaa_unfixable", "always broken", "rate_limit", "def test_x():\n    assert False, 'nope'\n"
+    )
+    return [unrelated, timeout]  # the unfixable one comes first and becomes the "target"
+
+
+def _fixture(name: str) -> str:
+    return (Path(__file__).parent / "fixtures" / "candidates" / name).read_text()
+
+
+def test_a_repair_that_fixes_any_reproduced_failure_wins_and_its_pr_carries_those_tests():
+    from faultforge.pr import plan_pull_request
+
+    plan = json.dumps({"strategies": [{"id": "idem", "summary": "Idempotency key"}]})
+    good = f"### orders/fulfillment.py\n```python\n{_fixture('idempotency_key__fulfillment.py')}```"
+    result, _ = _order_pipeline(StubLLM(plan=[plan], write=[good]), _demo_scenarios())
+
+    assert result.status is Status.REPAIRED
+    pr = plan_pull_request(result)
+    assert "tests/test_ff_timeout_duplicate.py" in pr.files
+    assert "tests/test_ff_aaa_unfixable.py" not in pr.files
+
+
+def test_a_rejected_repair_is_revised_once_with_the_verification_result():
+    plan = json.dumps({"strategies": [{"id": "idem", "summary": "Idempotency key"}]})
+    breaks = (
+        f"### orders/fulfillment.py\n```python\n{_fixture('breaks_contract__fulfillment.py')}```"
+    )
+    good = f"### orders/fulfillment.py\n```python\n{_fixture('idempotency_key__fulfillment.py')}```"
+    llm = StubLLM(plan=[plan], write=[breaks, good])
+
+    result, events = _order_pipeline(llm, _demo_scenarios()[1:])
+
+    assert result.status is Status.REPAIRED
+    assert result.winner.candidate.id == "idem_revised"
+    assert any(e.type == "candidate_revised" for e in events.items())
+    assert "Existing test suite: failed" in llm.calls[-1].user

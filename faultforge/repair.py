@@ -32,8 +32,9 @@ failure. Respond with JSON only:
 
 WRITE_SYSTEM = """You implement one repair strategy in a Python codebase.
 Return the complete new content of every file you change. Do not modify tests, test
-configuration or the faultkit package. Keep the change minimal and keep the existing behaviour
-and signatures that the tests rely on. Format each changed file exactly like this:
+configuration or the faultkit package. Keep the change minimal: keep request bodies, return
+values and signatures that existing tests rely on unless the strategy itself requires changing
+them. Format each changed file exactly like this:
 ### relative/path.py
 ```python
 <the complete file>
@@ -76,9 +77,10 @@ def generate_repairs(
     failure: str,
     events: EventLog,
     max_candidates: int = 3,
+    others: list[tuple[Scenario, str]] = (),
 ) -> list[Candidate]:
     sources = collect_source_files(source)
-    context = _context(sources, scenario, failure)
+    context = _context(sources, scenario, failure, others)
     plan = _ask(llm, "plan", PLAN_SYSTEM, context, _validate_plan)
     strategies = plan["strategies"][:max_candidates]
     events.emit("repairs_planned", strategies=strategies)
@@ -97,13 +99,49 @@ def generate_repairs(
     return candidates
 
 
-def _context(sources: dict[str, str], scenario: Scenario, failure: str) -> str:
-    listing = "\n\n".join(f"### {path}\n```python\n{code}```" for path, code in sources.items())
-    return (
-        f"## Failure scenario: {scenario.title} (fault: {scenario.fault})\n"
-        f"### {scenario.test_path}\n```python\n{scenario.test_code}```\n\n"
-        f"## Observed failure\n{failure}\n\n## Application source\n{listing}"
+def revise_repair(
+    llm: LLM,
+    source: Path,
+    scenario: Scenario,
+    failure: str,
+    candidate: Candidate,
+    verification: str,
+    events: EventLog,
+    others: list[tuple[Scenario, str]] = (),
+) -> Candidate | None:
+    """Give a rejected repair one more attempt, showing the writer what verification found."""
+    current = "\n\n".join(f"### {p}\n```python\n{c}```" for p, c in candidate.files.items())
+    request = (
+        f"{_context(collect_source_files(source), scenario, failure, others)}\n\n"
+        f"## Strategy\n{candidate.summary}\n\n## Your previous patch\n{current}\n\n"
+        f"## Verification of that patch\n{verification}\n\n"
+        "Revise the patch so the failure scenarios pass and the existing tests still pass. "
+        "Return the complete revised files."
     )
+    try:
+        written = _ask(llm, "write", WRITE_SYSTEM, request, _validate_files, parse_files)
+    except (RepairError, LLMError) as error:
+        events.emit("candidate_rejected", candidate=f"{candidate.id}_revised", reason=str(error))
+        return None
+    revised = Candidate(f"{candidate.id}_revised", candidate.summary, written["files"])
+    events.emit("candidate_revised", candidate=revised.id, files=sorted(revised.files))
+    return revised
+
+
+def _context(
+    sources: dict[str, str],
+    scenario: Scenario,
+    failure: str,
+    others: list[tuple[Scenario, str]] = (),
+) -> str:
+    listing = "\n\n".join(f"### {path}\n```python\n{code}```" for path, code in sources.items())
+    failures = [(scenario, failure), *[o for o in others if o[0].id != scenario.id]]
+    shown = "\n\n".join(
+        f"### {s.title} (fault: {s.fault}) — {s.test_path}\n```python\n{s.test_code}```\n"
+        f"Observed: {message}"
+        for s, message in failures
+    )
+    return f"## Reproduced failures\n{shown}\n\n## Application source\n{listing}"
 
 
 def _ask(llm: LLM, role: Role, system: str, user: str, validate, parse=parse_json) -> dict:

@@ -128,3 +128,15 @@ def test_fake_api_can_answer_with_a_custom_body_and_status():
 
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
+
+
+def test_fake_api_lists_the_objects_it_created_with_their_ids():
+    api = FakeAPI(id_prefix="ful")
+    http = client(api, Timeout(on_calls={1}, after_processing=True))
+
+    with pytest.raises(httpx.TimeoutException):
+        http.post(URL, json={"order": 1}, headers={"Idempotency-Key": "k"})
+    http.post(URL, json={"order": 1}, headers={"Idempotency-Key": "k"})
+
+    assert api.created == [{"id": "ful_1", "status": "accepted"}]
+    assert api.accepted == [{"order": 1}]

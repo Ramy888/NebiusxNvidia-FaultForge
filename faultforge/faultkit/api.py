@@ -4,13 +4,18 @@ import httpx
 
 
 class FakeAPI:
-    """A well-behaved dependency: records every accepted request and honours Idempotency-Key."""
+    """A well-behaved dependency that honours Idempotency-Key.
+
+    `accepted` holds the request bodies it processed (what the application sent).
+    `created` holds the objects it created in response, each with its "id".
+    """
 
     def __init__(self, status: int = 201, id_prefix: str = "res", body: dict | None = None):
         self.status = status
         self.id_prefix = id_prefix
         self.body = body or {}
         self.accepted: list = []
+        self.created: list[dict] = []
         self._results_by_key: dict[str, dict] = {}
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -23,6 +28,7 @@ class FakeAPI:
             "status": "accepted",
             **self.body,
         }
+        self.created.append(result)
         if key:
             self._results_by_key[key] = result
         return httpx.Response(self.status, json=result)

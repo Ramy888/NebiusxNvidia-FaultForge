@@ -59,9 +59,11 @@ FAULT_GUIDANCE = {
 
 FAULT_KIT_DOC = """Fault kit API (importable as `faultkit`):
 - FakeAPI(status=201, id_prefix="res", body=None): an in-process fake of the external service.
-  Every request it processes is appended to `.accepted` (the parsed JSON body). It answers
-  `status` with JSON {"id": "<id_prefix>_<n>", "status": "accepted", **body}. It honours the
-  Idempotency-Key header: a repeated key returns the first result and is not processed again.
+  It answers `status` with JSON {"id": "<id_prefix>_<n>", "status": "accepted", **body}.
+  `.accepted` is the list of REQUEST bodies it processed (what the application sent; these
+  have no "id"). `.created` is the list of objects it created, each with its "id": use it to
+  check which ID the application stored. It honours the Idempotency-Key header: a repeated key
+  returns the first result and is not processed again (not added to .accepted or .created).
 - FaultyTransport(handler, *faults): an httpx transport. Use it as
   httpx.Client(transport=FaultyTransport(fake, fault)).
 - Timeout(on_calls={1}, after_processing=True): the request is processed, then httpx.ReadTimeout.
@@ -93,6 +95,9 @@ def test_one_checkout_reserves_stock_once_when_the_response_times_out():
         f"one checkout reserved stock {len(warehouse.accepted)} times at the warehouse"
     )
     assert reservation.status == "reserved", "the checkout did not end up reserved"
+    assert reservation.warehouse_id == warehouse.created[0]["id"], (
+        "the checkout does not reference the reservation the warehouse created"
+    )
 '''
 
 PLAN_SYSTEM = """You design failure-injection tests for one HTTP dependency of a Python backend.

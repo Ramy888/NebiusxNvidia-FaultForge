@@ -48,3 +48,15 @@ def safe_relative_path(path: str) -> PurePosixPath:
     if candidate.is_absolute() or ".." in candidate.parts or not candidate.parts:
         raise SandboxError(f"refusing to write outside the repo: {path!r}")
     return candidate
+
+
+def ensure_isolated_for_live(sandbox_name: str, env: dict | None = None) -> None:
+    """Live mode executes model-written code, so it needs a VM-isolated sandbox by default."""
+    import os
+
+    env = os.environ if env is None else env
+    if sandbox_name == "local" and env.get("FAULTFORGE_ALLOW_LOCAL_LIVE") != "1":
+        raise SandboxError(
+            "live mode runs model-written code: use --sandbox contree (an isolated sandbox), or "
+            "set FAULTFORGE_ALLOW_LOCAL_LIVE=1 on a machine or container you are willing to risk"
+        )

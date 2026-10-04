@@ -91,6 +91,14 @@ cp .env.example .env      # NEBIUS_API_KEY, NEBIUS_PROJECT_ID, TAVILY_API_KEY
 uv run --extra contree --env-file .env faultforge run examples/order-service --sandbox contree
 ```
 
+Live mode executes Nemotron-written code, so it refuses the local sandbox unless you opt in.
+Until Sandboxes access is enabled, run it inside the container instead:
+
+```bash
+docker run --rm --env-file .env -e FAULTFORGE_ALLOW_LOCAL_LIVE=1 faultforge \
+  uv run --no-sync faultforge run examples/order-service
+```
+
 Without `--scenario`, FaultForge discovers the dependency, researches it and writes the scenarios itself. With `--open-pr` it commits the repair and regression test on a new branch of the target repo and opens a GitHub pull request.
 
 ## Safety

@@ -12,7 +12,7 @@ from .pipeline import Status, load_stub, run_pipeline
 from .pr import PullRequestError, open_pull_request, plan_pull_request
 from .report import render_markdown
 from .research import TavilyResearcher
-from .sandbox import LocalSandbox, SandboxError
+from .sandbox import LocalSandbox, SandboxError, ensure_isolated_for_live
 from .scenarios import scenario_from_file
 from .serialize import result_to_dict
 
@@ -71,8 +71,10 @@ def main(argv: list[str] | None = None) -> int:
             repo, scenario_files = args.repo, args.scenario
             llm = load_stub(args.stub) if args.stub else _live_llm()
             sandbox_name = args.sandbox
+            if not args.stub:
+                ensure_isolated_for_live(sandbox_name)
             setup = args.setup or (REMOTE_SETUP if sandbox_name == "contree" else None)
-    except LLMError as error:
+    except (LLMError, SandboxError) as error:
         print(f"faultforge: {error}", file=sys.stderr)
         return 2
 

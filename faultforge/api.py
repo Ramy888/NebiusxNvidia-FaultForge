@@ -22,7 +22,7 @@ from .events import EventLog
 from .limits import RateLimiter
 from .pipeline import load_stub, run_pipeline
 from .pr import PullRequestError, open_pull_request, plan_pull_request
-from .sandbox import LocalSandbox
+from .sandbox import LocalSandbox, SandboxError, ensure_isolated_for_live
 from .scenarios import scenario_from_file
 from .serialize import result_to_dict
 
@@ -72,15 +72,11 @@ def create_app(
     """The public demo: prepared examples only, rate-limited, bounded in memory and work."""
     mode = mode or os.environ.get("FAULTFORGE_MODE", "demo")
     sandbox_name = os.environ.get("FAULTFORGE_SANDBOX", "local")
-    if (
-        mode == "live"
-        and sandbox_name == "local"
-        and os.environ.get("FAULTFORGE_ALLOW_LOCAL_LIVE") != "1"
-    ):
-        raise RuntimeError(
-            "live mode runs model-written code: set FAULTFORGE_SANDBOX=contree (an isolated "
-            "sandbox), or FAULTFORGE_ALLOW_LOCAL_LIVE=1 on a machine you are willing to risk"
-        )
+    if mode == "live":
+        try:
+            ensure_isolated_for_live(sandbox_name)
+        except SandboxError as error:
+            raise RuntimeError(str(error)) from error
     trust_proxy = os.environ.get("FAULTFORGE_TRUST_PROXY") == "1"
     limiter = RateLimiter(runs_per_window, window_s)
     runs: dict[str, Run] = {}
@@ -120,18 +116,18 @@ def create_app(
     def start(body: RunRequest, request: Request) -> dict:
         if body.example not in EXAMPLES:
             raise HTTPException(404, "unknown example")
-        # Check capacity first, so retrying against a busy server never burns the client's quota.
-        with lock:
-            busy = sum(not r.done for r in runs.values()) >= max_active_runs
-        if busy:
-            raise HTTPException(503, "busy running other demos, try again in a minute")
-        retry_after = limiter.check(_client_key(request, trust_proxy))
-        if retry_after:
-            raise HTTPException(
-                429, "too many runs, try again later", {"Retry-After": str(retry_after)}
-            )
         run = Run(id=uuid.uuid4().hex[:12], example=body.example)
+        # Capacity check, rate limit and reservation are one critical section, so concurrent
+        # requests cannot over-admit. Capacity comes first: retrying against a busy server never
+        # burns the client's quota.
         with lock:
+            if sum(not r.done for r in runs.values()) >= max_active_runs:
+                raise HTTPException(503, "busy running other demos, try again in a minute")
+            retry_after = limiter.check(_client_key(request, trust_proxy))
+            if retry_after:
+                raise HTTPException(
+                    429, "too many runs, try again later", {"Retry-After": str(retry_after)}
+                )
             runs[run.id] = run
             for stale in list(runs)[:-keep_runs]:
                 del runs[stale]

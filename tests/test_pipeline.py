@@ -162,3 +162,13 @@ def test_cli_pr_preview_prints_branch_and_files(capsys):
     err = capsys.readouterr().err
     assert "faultforge/idempotency_key" in err
     assert "tests/test_ff_timeout_duplicate.py" in err
+
+
+def test_live_cli_refuses_the_local_sandbox_unless_explicitly_allowed(monkeypatch, capsys):
+    monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
+    monkeypatch.delenv("FAULTFORGE_ALLOW_LOCAL_LIVE", raising=False)
+
+    exit_code = main(["run", str(ORDER_SERVICE_REPO), "--sandbox", "local"])
+
+    assert exit_code == 2
+    assert "isolated sandbox" in capsys.readouterr().err

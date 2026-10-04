@@ -92,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
             found = auto_scenarios(llm, repo, _researcher(), events, sandbox, setup)
             scenarios = found.scenarios
             if not scenarios:
+                if args.dump:
+                    _dump(args.dump, events, None, found)
                 print("faultforge: no testable HTTP dependency scenarios found", file=sys.stderr)
                 return 1
         result = run_pipeline(
@@ -106,14 +108,7 @@ def main(argv: list[str] | None = None) -> int:
 
     markdown = render_markdown(result, found)
     if args.dump:
-        events_out = [{"type": e.type, "data": e.data} for e in events.items()]
-        args.dump.write_text(
-            json.dumps(
-                {"result": result_to_dict(result, found), "events": events_out},
-                indent=2,
-                default=str,
-            )
-        )
+        _dump(args.dump, events, result, found)
     if args.out:
         args.out.write_text(markdown)
     else:
@@ -136,6 +131,14 @@ def main(argv: list[str] | None = None) -> int:
     if usage := getattr(llm, "usage", None):
         print(f"• token usage: {usage}", file=sys.stderr)
     return 0 if result.status in (Status.REPAIRED, Status.NO_FAILURE) else 1
+
+
+def _dump(path: Path, events: EventLog, result, found) -> None:
+    payload = {
+        "result": result_to_dict(result, found) if result else None,
+        "events": [{"type": e.type, "data": e.data} for e in events.items()],
+    }
+    path.write_text(json.dumps(payload, indent=2, default=str))
 
 
 def _live_llm():

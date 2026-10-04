@@ -64,14 +64,14 @@ def validate_scenarios(
             continue
         fixed = writer.fix(scenario, problem)
         if fixed is None:
-            events.emit("scenario_discarded", scenario=scenario.id, reason=problem[-300:])
+            events.emit("scenario_discarded", scenario=scenario.id, reason=problem[:400])
         else:
             retry.append(fixed)
     for scenario, problem in _problems(sandbox, source, retry, events, setup):
         if problem is None:
             kept.append(scenario)
         else:
-            events.emit("scenario_discarded", scenario=scenario.id, reason=problem[-300:])
+            events.emit("scenario_discarded", scenario=scenario.id, reason=problem[:400])
     return kept
 
 
@@ -90,7 +90,8 @@ def _problems(sandbox, source, scenarios, events, setup) -> list[tuple[Scenario,
             base, f"FAULTKIT_DISABLED=1 {PYTEST} {scenario.test_path}", timeout=CONTROL_TIMEOUT_S
         )
         outcome, message = classify(control)
-        if outcome is Outcome.PASSED:
+        # A test that expects the fault's error can only "fail" by the error not happening.
+        if outcome is Outcome.PASSED or "DID NOT RAISE" in control.stdout:
             results.append((scenario, None))
         else:
             output = (control.stdout + control.stderr)[-2500:]

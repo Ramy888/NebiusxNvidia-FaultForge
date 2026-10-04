@@ -209,3 +209,34 @@ def test_a_genuine_scenario_passes_its_control_run_and_is_kept():
         kept = validate_scenarios(writer, sandbox, ORDER_SERVICE_REPO, writer.write_all(), events)
 
     assert [s.fault for s in kept] == ["timeout"]
+
+
+def test_a_test_expecting_an_error_from_the_fault_survives_the_control_run():
+    from faultforge.auto import validate_scenarios
+    from faultforge.scenarios import ScenarioWriter
+
+    expects_error = """```python
+\"\"\"FaultForge scenario: garbled response raises a clear error\"\"\"
+import httpx
+import pytest
+from faultkit import FakeAPI, FaultyTransport, Malformed
+
+from orders.service import OrderService
+
+
+def test_garbled_response_raises():
+    http = httpx.Client(transport=FaultyTransport(FakeAPI(), Malformed(on_calls={1})))
+    service = OrderService(FulfillmentClient(http, base_url="https://f.test"))
+    with pytest.raises(Exception):
+        service.place_order("c", [])
+```"""
+    plan = json.dumps({"scenarios": [{"fault": "malformed", "invariant": "clear error"}]})
+    events = EventLog()
+    writer = ScenarioWriter(
+        StubLLM(plan=[plan], write=[expects_error]), ORDER_SERVICE_REPO, DEPENDENCY, "", events
+    )
+
+    with LocalSandbox() as sandbox:
+        kept = validate_scenarios(writer, sandbox, ORDER_SERVICE_REPO, writer.write_all(), events)
+
+    assert [s.fault for s in kept] == ["malformed"]

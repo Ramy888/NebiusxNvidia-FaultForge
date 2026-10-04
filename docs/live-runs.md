@@ -1,0 +1,34 @@
+# Live runs on Nemotron (2026-10-04)
+
+Every run below used NVIDIA Nemotron 3 Ultra (planning, analysis, second attempts) and Nemotron 3
+Nano (writing tests and patches) on Nebius Token Factory, plus a live Tavily search, on the two
+example services. Runs used the local sandbox inside a Docker container (Token Factory Sandboxes
+access pending). "Repaired" means a patch passed: every existing test, no regressions, and at
+least one reproduced failure fixed.
+
+| Iteration | Change | Repaired |
+|---|---|---|
+| 1 | first live run | 0 / 1 |
+| 2 | — (diagnostics added) | 0 / 1 |
+| 3 | code normalisation; Super as writer compared | 0 / 2 |
+| 4 | code as fenced blocks, worked example, no writer thinking | 1 / 1, then 0 / 3 |
+| 5 | repairs see all failures; one revision; "count effects, not requests" | 3 / 5 |
+| 6 | fault-off control run (later reverted) | 3 / 8, Super 2 / 4, Ultra 2 / 4 |
+| 7 | traceback check for test bugs instead of the control run | 5 / 8 (webhook 4 / 4) |
+| 8 | second attempts escalate to Ultra with reasoning | **5 / 8** (order 2 / 4, webhook 3 / 4) |
+
+What each lesson was:
+
+- **Code inside JSON strings fails for every model size.** Asking for fenced code blocks fixed most
+  syntax and escaping errors (iteration 4).
+- **Nano's default reasoning cost minutes per call** for little gain when writing code; turning it
+  off cut a run from ~15 minutes to ~1 minute.
+- **Bigger writers did not help on their own** (Super and Ultra scored like Nano in iteration 6):
+  the bottleneck was validation and feedback, not model size.
+- **A generated test is broken when it raises a non-assertion error in its own code**; the same
+  error inside application code is a real failure. A "must pass without the fault" check sounded
+  right but rejected valid fault-conditional tests.
+- **Second attempts work best with the reasoning model**, told why the first attempt failed.
+
+Typical token use per run: ~3–4k prompt / ~4–5k completion tokens on Ultra for planning, ~6k / ~1k
+on Nano for writing, plus up to ~17k completion tokens on Ultra when a second attempt is needed.

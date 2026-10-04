@@ -64,6 +64,24 @@ export function Evidence({
         ))}
       </ul>
 
+      {!result.winner && result.candidates.length > 0 && (
+        <>
+          <h3>What was tried</h3>
+          <ul className="attempts">
+            {result.candidates.map((c) => (
+              <li key={c.id}>
+                <span>{c.summary}</span>
+                <span className="badge-bad">{c.rejection_reason}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="note">
+            Every repair was verified against the same failures and rejected. Select one in the
+            attempt tree to see its patch and results.
+          </p>
+        </>
+      )}
+
       {candidate && (
         <>
           <h3>

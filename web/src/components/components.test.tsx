@@ -50,3 +50,28 @@ test("the last step reads as done once the run has finished", async () => {
 
   expect(container.querySelectorAll(".phase-done")).toHaveLength(5);
 });
+
+test("when nothing passes, evidence lists every attempt and why it was rejected", () => {
+  const rejected = (id: string, reason: string) => ({
+    ...RESULT.candidates[0],
+    id,
+    summary: `Try ${id}`,
+    accepted: false,
+    rejection_reason: reason,
+  });
+  const result: RunResult = {
+    ...RESULT,
+    status: "no_repair",
+    winner: null,
+    candidates: [rejected("a", "breaks existing tests"), rejected("b", "fixes no failing scenario")],
+  };
+
+  const { container } = render(<Evidence result={result} candidateId={null} />);
+
+  expect(screen.getByText("What was tried")).toBeTruthy();
+  const attempts = container.querySelector(".attempts")?.textContent ?? "";
+  expect(attempts).toContain("Try a");
+  expect(attempts).toContain("breaks existing tests");
+  expect(attempts).toContain("Try b");
+  expect(attempts).toContain("fixes no failing scenario");
+});

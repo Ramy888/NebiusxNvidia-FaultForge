@@ -155,3 +155,6 @@ button.secondary:hover { border-color: var(--accent); }
 .chip-discarded { color: var(--muted); border-style: dashed; }
 
 .actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+.attempts { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.attempts li { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; flex-wrap: wrap; }

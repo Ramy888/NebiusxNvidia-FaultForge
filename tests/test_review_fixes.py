@@ -151,3 +151,22 @@ def test_pytest_is_a_runtime_dependency():
     names = [dep.split(">")[0].split("=")[0].strip() for dep in project["project"]["dependencies"]]
 
     assert "pytest" in names
+
+
+def test_misusing_the_fault_kit_counts_as_a_test_bug_not_an_app_failure():
+    from faultforge.scenarios import is_test_bug
+
+    assert is_test_bug("TypeError: FakeAPI.__init__() got an unexpected keyword argument 'headers'")
+    assert is_test_bug("TypeError: FaultyTransport.__init__() takes 2 positional arguments")
+    assert not is_test_bug("TypeError: 'NoneType' object is not subscriptable")
+
+
+def test_cli_can_dump_everything_for_debugging(tmp_path):
+    from faultforge.cli import main
+
+    dump = tmp_path / "run.json"
+
+    assert main(["demo", "--dump", str(dump)]) == 0
+    data = json.loads(dump.read_text())
+    assert data["result"]["scenarios"][0]["test_code"]
+    assert any(e["type"] == "candidate_applied" for e in data["events"])

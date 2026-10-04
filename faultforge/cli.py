@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -13,6 +14,7 @@ from .report import render_markdown
 from .research import TavilyResearcher
 from .sandbox import LocalSandbox, SandboxError
 from .scenarios import scenario_from_file
+from .serialize import result_to_dict
 
 # Remote sandboxes start from a bare Python image; local runs reuse FaultForge's interpreter.
 REMOTE_SETUP = "python -m pip install -q httpx pytest"
@@ -25,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     demo = commands.add_parser("demo", help="offline demo on the bundled order service")
     demo.add_argument("--example", choices=sorted(EXAMPLES), default="order-service")
     demo.add_argument("--out", type=Path, help="write the markdown report here")
+    demo.add_argument("--dump", type=Path, help="write result, generated code and events as JSON")
     demo.add_argument(
         "--pr-preview", action="store_true", help="show the pull request it would open"
     )
@@ -48,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--setup", help="one-time command run before the baseline")
     run.add_argument("--candidates", type=int, default=3)
     run.add_argument("--out", type=Path)
+    run.add_argument("--dump", type=Path, help="write result, generated code and events as JSON")
     run.add_argument(
         "--pr-preview", action="store_true", help="show the pull request it would open"
     )
@@ -100,6 +104,15 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     markdown = render_markdown(result, found)
+    if args.dump:
+        events_out = [{"type": e.type, "data": e.data} for e in events.items()]
+        args.dump.write_text(
+            json.dumps(
+                {"result": result_to_dict(result, found), "events": events_out},
+                indent=2,
+                default=str,
+            )
+        )
     if args.out:
         args.out.write_text(markdown)
     else:

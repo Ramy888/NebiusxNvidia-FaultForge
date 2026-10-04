@@ -146,13 +146,32 @@ def generate_scenarios(llm, source: Path, dependency, research: str, events) -> 
         if scenario is None:
             events.emit("scenario_discarded", scenario=fault, reason=f"invalid test: {error}")
             continue
-        events.emit("scenario_written", scenario=scenario.id, fault=fault, title=scenario.title)
+        events.emit(
+            "scenario_written",
+            scenario=scenario.id,
+            fault=fault,
+            title=scenario.title,
+            test_code=scenario.test_code,
+        )
         scenarios.append(scenario)
     return scenarios
 
 
+FAULT_KIT_NAMES = (
+    "FakeAPI",
+    "FaultyTransport",
+    "Timeout(",
+    "RateLimit(",
+    "Malformed(",
+    "DuplicateDelivery(",
+)
+
+
 def is_test_bug(message: str) -> bool:
-    return any(marker in message for marker in TEST_BUG_ERRORS)
+    if any(marker in message for marker in TEST_BUG_ERRORS):
+        return True
+    # A TypeError about the fault kit's own API means the generated test misused it.
+    return message.startswith("TypeError") and any(n in message for n in FAULT_KIT_NAMES)
 
 
 def _render(fault: str, fill: dict) -> Scenario:

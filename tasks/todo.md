@@ -39,7 +39,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [x] T16 UI: run view and attempt tree
 - [x] T17 UI: evidence view
 - [x] T18 Pull request with evidence
-- [x] T19 Public demo limits (independent security review still recommended)
+- [x] T19 Public demo limits — debate-review done 2026-10-04 (P0 + P2 fixed)
 - [~] T20 Deploy on Nebius Serverless — Dockerfile built and smoke-tested locally; deploy needs Ramy
 - [ ] **Checkpoint E** — demo-ready (Oct 24): offline demo ready; live demo not yet
 

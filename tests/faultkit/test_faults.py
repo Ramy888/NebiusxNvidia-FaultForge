@@ -128,3 +128,12 @@ def test_fake_api_can_answer_with_a_custom_body_and_status():
 
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
+
+
+def test_faults_can_be_switched_off_for_a_control_run(monkeypatch):
+    monkeypatch.setenv("FAULTKIT_DISABLED", "1")
+    api = FakeAPI()
+
+    response = client(api, Timeout(on_calls={1}), RateLimit(on_calls={1})).post(URL, json={})
+
+    assert response.status_code == 201

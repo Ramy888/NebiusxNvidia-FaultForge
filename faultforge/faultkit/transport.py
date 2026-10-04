@@ -1,3 +1,5 @@
+import os
+
 import httpx
 
 from .faults import Fault, Handler
@@ -14,7 +16,9 @@ class FaultyTransport(httpx.BaseTransport):
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         self.calls += 1
         request.read()
-        for fault in self._faults:
+        # FAULTKIT_DISABLED=1 gives a control run: a valid failure test must pass without faults.
+        faults = () if os.environ.get("FAULTKIT_DISABLED") == "1" else self._faults
+        for fault in faults:
             if fault.applies(self.calls):
                 return fault.apply(request, self._handler)
         response = self._handler(request)

@@ -7,11 +7,13 @@ from .discovery import Dependency, discover
 from .events import EventLog
 from .llm import LLM
 from .models import Scenario
-from .replay import run_baseline
+from .replay import PYTEST, Outcome, classify, run_baseline
 from .research import Research, TavilyResearcher, research_dependency
 from .sandbox import Sandbox
 from .scenarios import ScenarioWriter, scenario_is_broken
 from .workspace import prepare_workspace
+
+CONTROL_TIMEOUT_S = 120
 
 
 @dataclass
@@ -49,31 +51,50 @@ def validate_scenarios(
     events: EventLog,
     setup: str | None = None,
 ) -> list[Scenario]:
-    """Run each generated test once; a test broken by its own mistake gets one fix attempt."""
-    if not scenarios:
-        return []
-    baseline = run_baseline(
-        sandbox, prepare_workspace(sandbox, source, scenarios, setup), scenarios, events
-    )
+    """Keep generated tests that are sound; a broken one gets one fix attempt.
+
+    Sound means: with the fault injected the test runs (pass or fail on its assertion), and with
+    the fault switched off it passes. A test that fails even against a healthy dependency is
+    testing its own mistake, not the application.
+    """
     kept, retry = [], []
-    for scenario in scenarios:
-        check = baseline.scenarios[scenario.id]
-        if not scenario_is_broken(check):
+    for scenario, problem in _problems(sandbox, source, scenarios, events, setup):
+        if problem is None:
             kept.append(scenario)
             continue
-        fixed = writer.fix(scenario, check.output or check.message)
+        fixed = writer.fix(scenario, problem)
         if fixed is None:
-            events.emit("scenario_discarded", scenario=scenario.id, reason=check.message)
+            events.emit("scenario_discarded", scenario=scenario.id, reason=problem[-300:])
         else:
             retry.append(fixed)
-    if retry:
-        rechecked = run_baseline(
-            sandbox, prepare_workspace(sandbox, source, retry, setup), retry, events
-        )
-        for scenario in retry:
-            check = rechecked.scenarios[scenario.id]
-            if scenario_is_broken(check):
-                events.emit("scenario_discarded", scenario=scenario.id, reason=check.message)
-            else:
-                kept.append(scenario)
+    for scenario, problem in _problems(sandbox, source, retry, events, setup):
+        if problem is None:
+            kept.append(scenario)
+        else:
+            events.emit("scenario_discarded", scenario=scenario.id, reason=problem[-300:])
     return kept
+
+
+def _problems(sandbox, source, scenarios, events, setup) -> list[tuple[Scenario, str | None]]:
+    if not scenarios:
+        return []
+    base = prepare_workspace(sandbox, source, scenarios, setup)
+    baseline = run_baseline(sandbox, base, scenarios, events)
+    results = []
+    for scenario in scenarios:
+        check = baseline.scenarios[scenario.id]
+        if scenario_is_broken(check):
+            results.append((scenario, check.output or check.message))
+            continue
+        control = sandbox.run(
+            base, f"FAULTKIT_DISABLED=1 {PYTEST} {scenario.test_path}", timeout=CONTROL_TIMEOUT_S
+        )
+        outcome, message = classify(control)
+        if outcome is Outcome.PASSED:
+            results.append((scenario, None))
+        else:
+            output = (control.stdout + control.stderr)[-2500:]
+            results.append(
+                (scenario, f"The test fails even without the fault injected: {message}\n{output}")
+            )
+    return results

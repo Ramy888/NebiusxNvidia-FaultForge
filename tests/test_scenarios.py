@@ -160,3 +160,52 @@ def test_broken_scenarios_are_sent_back_with_the_error_and_fixed():
     fixed = [e for e in events.items() if e.type == "scenario_fixed"]
     assert fixed and "NameError" in writer.llm.calls[-1].user
     assert {s.fault for s in kept} == {"timeout", "malformed"}
+
+
+def test_a_test_that_fails_even_without_the_fault_is_sent_back_and_dropped_if_unfixed():
+    from faultforge.auto import validate_scenarios
+    from faultforge.scenarios import ScenarioWriter
+
+    always_fails = """```python
+\"\"\"FaultForge scenario: setup mistake\"\"\"
+import httpx
+from faultkit import FakeAPI, FaultyTransport, Timeout
+
+
+def test_lookup_of_an_order_that_was_never_created():
+    http = httpx.Client(transport=FaultyTransport(FakeAPI(), Timeout(on_calls={1})))
+    orders = {}
+    assert orders["order-456"] == "paid", "never reached"
+```"""
+    plan = json.dumps({"scenarios": [{"fault": "timeout", "invariant": "x"}]})
+    events = EventLog()
+    writer = ScenarioWriter(
+        StubLLM(plan=[plan], write=[always_fails, always_fails]),
+        ORDER_SERVICE_REPO,
+        DEPENDENCY,
+        "",
+        events,
+    )
+    scenarios = writer.write_all()
+
+    with LocalSandbox() as sandbox:
+        kept = validate_scenarios(writer, sandbox, ORDER_SERVICE_REPO, scenarios, events)
+
+    assert kept == []
+    assert "without the fault" in writer.llm.calls[-1].user
+
+
+def test_a_genuine_scenario_passes_its_control_run_and_is_kept():
+    from faultforge.auto import validate_scenarios
+    from faultforge.scenarios import ScenarioWriter
+
+    plan = json.dumps({"scenarios": [{"fault": "timeout", "invariant": "one fulfillment"}]})
+    events = EventLog()
+    writer = ScenarioWriter(
+        StubLLM(plan=[plan], write=[GOOD_FILL]), ORDER_SERVICE_REPO, DEPENDENCY, "", events
+    )
+
+    with LocalSandbox() as sandbox:
+        kept = validate_scenarios(writer, sandbox, ORDER_SERVICE_REPO, writer.write_all(), events)
+
+    assert [s.fault for s in kept] == ["timeout"]

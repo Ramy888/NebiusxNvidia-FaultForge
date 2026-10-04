@@ -3,6 +3,7 @@
 import ast
 from pathlib import Path
 
+from .codefix import add_missing_imports, normalize_code, top_level_symbols
 from .llm import LLMError, parse_json
 from .models import Scenario
 from .repair import collect_source_files
@@ -90,6 +91,9 @@ processed request answer HTTP 200 with that JSON merged into {"id": ..., "status
 Fill the parts so the test builds the application with `http`, performs the operation once, and
 asserts the invariant. Use only names that exist in the application source. Do not catch the
 assertion. Give assertions a message that states what went wrong in plain words.
+httpx, pytest, FakeAPI, FaultyTransport and the fault class are ALREADY imported: `imports` is
+only for the application's own modules. FakeAPI accepts only `status`, `id_prefix` and `body`.
+Write each field as plain, unindented Python lines separated by real newlines.
 Respond with JSON only:
 {"title": "...", "test_name": "snake_case", "fake_api_args": "", "imports": "python import lines",
  "arrange": "python lines", "act": "python lines", "assertions": "python lines"}"""
@@ -109,6 +113,7 @@ def generate_scenarios(llm, source: Path, dependency, research: str, events) -> 
     sources = "\n\n".join(
         f"### {p}\n```python\n{c}```" for p, c in collect_source_files(source).items()
     )
+    symbols = top_level_symbols(source)
     context = (
         f"## Dependency: {dependency.name}\nCalled from: "
         f"{', '.join(s.ref for s in dependency.call_sites)}\n"
@@ -139,7 +144,8 @@ def generate_scenarios(llm, source: Path, dependency, research: str, events) -> 
         for _ in range(2):
             prompt = request if not error else f"{request}\n\nPrevious answer was invalid: {error}"
             try:
-                scenario = _render(fault, parse_json(llm.complete("write", WRITE_SYSTEM, prompt)))
+                fill = parse_json(llm.complete("write", WRITE_SYSTEM, prompt))
+                scenario = _render(fault, fill, symbols)
                 break
             except (LLMError, ValueError, SyntaxError) as problem:
                 error = str(problem)
@@ -174,7 +180,25 @@ def is_test_bug(message: str) -> bool:
     return message.startswith("TypeError") and any(n in message for n in FAULT_KIT_NAMES)
 
 
-def _render(fault: str, fill: dict) -> Scenario:
+TEMPLATE_PROVIDED = ("httpx", "pytest", "faultkit")
+
+
+def _app_imports(text) -> str:
+    """Keep only imports the template does not already provide."""
+    keep = []
+    for line in normalize_code(text).splitlines():
+        words = line.replace(",", " ").split()
+        if (
+            len(words) > 1
+            and words[0] in ("import", "from")
+            and words[1].split(".")[0] in (TEMPLATE_PROVIDED)
+        ):
+            continue
+        keep.append(line)
+    return "\n".join(keep)
+
+
+def _render(fault: str, fill: dict, symbols: dict[str, str] | None = None) -> Scenario:
     fault_class, fault_expr = FAULT_EXPRESSIONS[fault]
     test_name = _slug(str(fill.get("test_name", "")))
     if not test_name:
@@ -182,7 +206,7 @@ def _render(fault: str, fill: dict) -> Scenario:
     code = TEMPLATE.format(
         title=str(fill.get("title", test_name)).replace('"""', "'''"),
         fault_class=fault_class,
-        imports=str(fill.get("imports", "")).strip(),
+        imports=_app_imports(fill.get("imports", "")),
         test_name=test_name,
         fault_expr=fault_expr,
         fake_api_args=str(fill.get("fake_api_args", "")).strip(),
@@ -191,6 +215,8 @@ def _render(fault: str, fill: dict) -> Scenario:
         assertions=_indent(fill.get("assertions", "")),
     )
     ast.parse(code)
+    if symbols:
+        code = add_missing_imports(code, symbols)
     return Scenario(
         id=f"{fault}_{test_name}"[:80],
         title=str(fill.get("title", test_name)),
@@ -200,7 +226,7 @@ def _render(fault: str, fill: dict) -> Scenario:
 
 
 def _indent(block) -> str:
-    lines = str(block).strip("\n").splitlines() or ["pass"]
+    lines = normalize_code(block).splitlines() or ["pass"]
     return "\n".join(f"    {line}" if line.strip() else "" for line in lines)
 
 

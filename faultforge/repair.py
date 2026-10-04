@@ -115,12 +115,23 @@ def _validate_plan(data: dict) -> None:
 
 
 def _validate_files(data: dict) -> None:
+    """Validates, and normalises in place, the model's file contents."""
+    from .codefix import normalize_code
+
     files = data.get("files")
     if not isinstance(files, dict) or not files:
         raise ValueError("expected a non-empty 'files' object")
-    for path, content in files.items():
+    for path, content in list(files.items()):
         safe = safe_relative_path(path).as_posix()
         if safe.startswith(PROTECTED_PREFIXES) or PurePosixPath(safe).name in PROTECTED_NAMES:
             raise ValueError(f"must not modify {path}")
         if not isinstance(content, str):
             raise ValueError(f"content for {path} must be a string")
+        files[path] = normalize_code(content) + "\n"
+        if path.endswith(".py"):
+            try:
+                compile(files[path], path, "exec")
+            except SyntaxError as error:
+                raise ValueError(
+                    f"syntax error in {path} line {error.lineno}: {error.msg}"
+                ) from None

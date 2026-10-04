@@ -53,12 +53,13 @@ flowchart LR
 |---|---|---|
 | Dependency analysis, scenario planning, repair strategies | **NVIDIA Nemotron 3 Ultra** (`nvidia/Nemotron-3-Ultra-550b-a55b`) on Token Factory | Reasoning over the whole codebase: what is the dependency, which operation is at risk, which distinct fixes are worth trying |
 | Writing failure tests and patches | **NVIDIA Nemotron 3 Nano** (`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`) on Token Factory | Fast, cheap generation of many candidates |
+| Reviewing reproduced failures and second attempts | **Nemotron 3 Ultra**, reasoning on | Triage ("application bug or test mistake?") and revising a repair or test that failed verification |
 | Running every check | **Token Factory Sandboxes** (Contree) | Each run of an image yields a new image, so the baseline, every scenario and every repair are branches of one checkpoint — exactly the shape of "replay every failure against every repair" |
 | Research | **Tavily** | How the real dependency documents timeouts, rate limits and idempotency, cited in the report |
 
 Nemotron models are region-scoped on Token Factory, so FaultForge keeps one OpenAI-compatible client per role (`faultforge/llm/token_factory.py`). Model output is consumed as JSON and validated; malformed output is retried once.
 
-> **Status:** the full loop runs offline today with scripted (hand-written) model responses and a local sandbox (`faultforge demo`). The Token Factory client and the Sandboxes adapter are built against the real APIs and tested with fakes; the live runs are being verified — see [`docs/spikes/`](docs/spikes).
+> **Status (2026-10-04):** the full loop runs live on Nemotron 3 Ultra and Nano via Token Factory, with Tavily research — from the CLI and from the web UI. In the latest batch, 6 of 8 live runs produced a genuine, verified repair; see [`docs/live-runs.md`](docs/live-runs.md) for every iteration and what it taught us. Token Factory Sandboxes access is requested; until it is enabled, live runs use the local sandbox inside the Docker container.
 
 ## Quick start (offline, no keys)
 
@@ -123,7 +124,7 @@ examples/        example services with realistic hidden failures
 ## Tests
 
 ```bash
-uv run pytest            # 125 tests, offline
+uv run pytest            # 155 tests, offline
 uv run ruff check .
 cd web && npm test       # UI model and components
 ```

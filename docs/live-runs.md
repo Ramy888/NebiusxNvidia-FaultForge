@@ -15,7 +15,16 @@ least one reproduced failure fixed.
 | 5 | repairs see all failures; one revision; "count effects, not requests" | 3 / 5 |
 | 6 | fault-off control run (later reverted) | 3 / 8, Super 2 / 4, Ultra 2 / 4 |
 | 7 | traceback check for test bugs instead of the control run | 5 / 8 (webhook 4 / 4) |
-| 8 | second attempts escalate to Ultra with reasoning | **5 / 8** (order 2 / 4, webhook 3 / 4) |
+| 8 | second attempts escalate to Ultra with reasoning | 5 / 8 reported, **3–4 / 8 genuine** (order 2 / 4, webhook 1–2 / 4) |
+
+**Reading the winning patches changed the numbers.** Some "repairs" fixed a mistake in the
+generated test rather than the app: the test never created the order it then looked up
+(`KeyError: 'order_456'`), and the winning patch made `OrderBook.status` return `"unknown"` for
+missing orders. These pass verification but are not fixes (iteration 7: d1; iteration 8: f1).
+Genuine winners change the dependency path: an `Idempotency-Key` header on the order service,
+`raise_for_status()` / explicit status checks in the payment verifier. Open fix: before planning
+repairs, have the reasoning model triage each reproduced failure as "application bug" or "test
+mistake".
 
 What each lesson was:
 

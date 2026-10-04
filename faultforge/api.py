@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from .auto import auto_scenarios
 from .demo import DESCRIPTIONS, EXAMPLES
 from .events import EventLog
-from .limits import RateLimiter
+from .limits import DailyBudget, RateLimiter
 from .pipeline import load_stub, run_pipeline
 from .pr import PullRequestError, open_pull_request, plan_pull_request
 from .sandbox import LocalSandbox, SandboxError, ensure_isolated_for_live
@@ -42,6 +42,8 @@ class _PageFiles(StaticFiles):
 
 class RunRequest(BaseModel):
     example: str
+    # "demo" (scripted, free) or "live" (Nemotron). Defaults to the server's mode.
+    mode: str | None = None
 
 
 @dataclass
@@ -68,6 +70,7 @@ def create_app(
     runs_per_window: int = 5,
     window_s: float = 600,
     keep_runs: int = 100,
+    live_runs_per_day: int | None = None,
 ) -> FastAPI:
     """The public demo: prepared examples only, rate-limited, bounded in memory and work."""
     mode = mode or os.environ.get("FAULTFORGE_MODE", "demo")
@@ -78,6 +81,10 @@ def create_app(
         except SandboxError as error:
             raise RuntimeError(str(error)) from error
     trust_proxy = os.environ.get("FAULTFORGE_TRUST_PROXY") == "1"
+    if live_runs_per_day is None:
+        live_runs_per_day = int(os.environ.get("FAULTFORGE_LIVE_RUNS_PER_DAY", "40"))
+    # Every live run spends Token Factory credit; this caps what anonymous visitors can spend.
+    live_budget = DailyBudget(live_runs_per_day)
     limiter = RateLimiter(runs_per_window, window_s)
     runs: dict[str, Run] = {}
     lock = threading.Lock()
@@ -106,7 +113,10 @@ def create_app(
             )
         else:
             description = "Demo: scripted model responses, no Nemotron calls, local sandbox"
-        return {"mode": mode, "description": description}
+        info = {"mode": mode, "description": description}
+        if mode == "live":
+            info["live_runs_left_today"] = live_budget.remaining()
+        return info
 
     @app.get("/api/examples")
     def examples() -> list[dict]:
@@ -116,6 +126,9 @@ def create_app(
     def start(body: RunRequest, request: Request) -> dict:
         if body.example not in EXAMPLES:
             raise HTTPException(404, "unknown example")
+        run_mode = body.mode or mode
+        if run_mode not in ("demo", "live") or (run_mode == "live" and mode != "live"):
+            raise HTTPException(400, f"this server cannot run mode {run_mode!r}")
         run = Run(id=uuid.uuid4().hex[:12], example=body.example)
         # Capacity check, rate limit and reservation are one critical section, so concurrent
         # requests cannot over-admit. Capacity comes first: retrying against a busy server never
@@ -123,15 +136,21 @@ def create_app(
         with lock:
             if sum(not r.done for r in runs.values()) >= max_active_runs:
                 raise HTTPException(503, "busy running other demos, try again in a minute")
+            if run_mode == "live" and live_budget.remaining() == 0:
+                raise HTTPException(
+                    429, "the daily live-run budget is used up; try the scripted run instead"
+                )
             retry_after = limiter.check(_client_key(request, trust_proxy))
             if retry_after:
                 raise HTTPException(
                     429, "too many runs, try again later", {"Retry-After": str(retry_after)}
                 )
+            if run_mode == "live":
+                live_budget.take()
             runs[run.id] = run
             for stale in list(runs)[:-keep_runs]:
                 del runs[stale]
-        executor.submit(_execute, run, mode, sandbox_name)
+        executor.submit(_execute, run, run_mode, sandbox_name)
         return {"id": run.id}
 
     @app.get("/api/runs/{run_id}")

@@ -153,3 +153,5 @@ button.secondary:hover { border-color: var(--accent); }
 .activity-done summary { font-size: 0.95rem; }
 .activity-done .activity { margin-top: 12px; }
 .chip-discarded { color: var(--muted); border-style: dashed; }
+
+.actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }

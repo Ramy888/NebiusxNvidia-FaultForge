@@ -15,15 +15,21 @@ async function json<T>(response: Response): Promise<T> {
 }
 
 export const fetchInfo = () =>
-  fetch("/api/info").then((r) => json<{ mode: string; description: string }>(r));
+  fetch("/api/info").then((r) => json<ServerInfo>(r));
+
+export interface ServerInfo {
+  mode: string;
+  description: string;
+  live_runs_left_today?: number;
+}
 
 export const fetchExamples = () => fetch("/api/examples").then((r) => json<Example[]>(r));
 
-export const startRun = (example: string) =>
+export const startRun = (example: string, mode?: "demo" | "live") =>
   fetch("/api/runs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ example }),
+    body: JSON.stringify(mode ? { example, mode } : { example }),
   }).then((r) => json<{ id: string }>(r));
 
 export const fetchRun = (id: string) => fetch(`/api/runs/${id}`).then((r) => json<RunStatus>(r));

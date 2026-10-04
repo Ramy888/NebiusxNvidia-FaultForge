@@ -3,6 +3,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 
 class RateLimiter:
@@ -34,3 +35,30 @@ class RateLimiter:
         idle = [k for k, hits in self._hits.items() if not hits or hits[-1] <= now - self._window]
         for key in idle:
             del self._hits[key]
+
+
+class DailyBudget:
+    """At most `limit` uses per UTC day: caps how much model spend a public demo can cause."""
+
+    def __init__(self, limit: int, clock: Callable[[], float] = time.time):
+        self._limit, self._clock = limit, clock
+        self._day, self._used = None, 0
+        self._lock = threading.Lock()
+
+    def take(self) -> bool:
+        with self._lock:
+            self._roll()
+            if self._used >= self._limit:
+                return False
+            self._used += 1
+            return True
+
+    def remaining(self) -> int:
+        with self._lock:
+            self._roll()
+            return max(0, self._limit - self._used)
+
+    def _roll(self) -> None:
+        day = datetime.fromtimestamp(self._clock(), UTC).date()
+        if day != self._day:
+            self._day, self._used = day, 0

@@ -126,3 +126,61 @@ def test_a_failed_run_streams_its_failure_before_ending(monkeypatch):
 
     assert run["state"] == "failed" and "NEBIUS_API_KEY" in run["error"]
     assert body.index("run_failed") < body.index("event: end")
+
+
+# --- Daily budget for live runs -------------------------------------------------------------
+
+
+def test_daily_budget_allows_up_to_the_limit_then_refuses_until_the_next_utc_day():
+    from datetime import UTC, datetime
+
+    from faultforge.limits import DailyBudget
+
+    now = [datetime(2026, 10, 5, 23, 0, tzinfo=UTC).timestamp()]
+    budget = DailyBudget(limit=2, clock=lambda: now[0])
+
+    assert budget.take() and budget.take()
+    assert not budget.take()
+    assert budget.remaining() == 0
+
+    now[0] += 2 * 3600  # past midnight UTC
+    assert budget.take()
+
+
+def _live_app(monkeypatch, **kwargs):
+    monkeypatch.setenv("FAULTFORGE_ALLOW_LOCAL_LIVE", "1")
+    monkeypatch.delenv("NEBIUS_API_KEY", raising=False)  # live runs fail fast, no network
+    return create_app(mode="live", runs_per_window=100, **kwargs)
+
+
+def test_live_runs_beyond_the_daily_budget_are_refused_with_a_clear_message(monkeypatch):
+    with TestClient(_live_app(monkeypatch, live_runs_per_day=1)) as client:
+        first = client.post("/api/runs", json={"example": "order-service"})
+        second = client.post("/api/runs", json={"example": "order-service"})
+
+    assert first.status_code == 202
+    assert second.status_code == 429
+    assert "daily" in second.json()["detail"]
+
+
+def test_the_scripted_run_is_always_available_and_does_not_use_the_budget(monkeypatch):
+    with TestClient(_live_app(monkeypatch, live_runs_per_day=1)) as client:
+        scripted = client.post("/api/runs", json={"example": "order-service", "mode": "demo"})
+        live = client.post("/api/runs", json={"example": "order-service"})
+
+    assert (scripted.status_code, live.status_code) == (202, 202)
+
+
+def test_a_demo_server_never_runs_live_even_if_asked():
+    with TestClient(create_app(mode="demo")) as client:
+        response = client.post("/api/runs", json={"example": "order-service", "mode": "live"})
+
+    assert response.status_code == 400
+
+
+def test_info_reports_the_remaining_live_budget(monkeypatch):
+    with TestClient(_live_app(monkeypatch, live_runs_per_day=3)) as client:
+        client.post("/api/runs", json={"example": "order-service"})
+        info = client.get("/api/info").json()
+
+    assert info["live_runs_left_today"] == 2

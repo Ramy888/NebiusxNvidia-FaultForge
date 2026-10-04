@@ -1,5 +1,12 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import { fetchExamples, fetchInfo, fetchRun, followRun, startRun } from "./api";
+import {
+  fetchExamples,
+  fetchInfo,
+  fetchRun,
+  followRun,
+  type ServerInfo,
+  startRun,
+} from "./api";
 import { Activity } from "./components/Activity";
 import { AttemptTree } from "./components/AttemptTree";
 import { Evidence } from "./components/Evidence";
@@ -16,7 +23,7 @@ function reducer(model: RunModel, action: Action): RunModel {
 
 export default function App() {
   const [examples, setExamples] = useState<Example[]>([]);
-  const [info, setInfo] = useState<{ mode: string; description: string } | null>(null);
+  const [info, setInfo] = useState<ServerInfo | null>(null);
   const [example, setExample] = useState<string>("");
   const [model, dispatch] = useReducer(reducer, undefined, initialModel);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -37,7 +44,7 @@ export default function App() {
     return () => stop.current?.();
   }, []);
 
-  async function run() {
+  async function run(mode?: "demo" | "live") {
     stop.current?.();
     dispatch({ kind: "reset" });
     setResult(null);
@@ -45,7 +52,7 @@ export default function App() {
     setSelected(null);
     setBusy(true);
     try {
-      const { id } = await startRun(example);
+      const { id } = await startRun(example, mode);
       setRunId(id);
       stop.current = followRun(
         id,
@@ -55,6 +62,7 @@ export default function App() {
           if (status?.result) setResult(status.result);
           if (status?.error) setError(status.error);
           setBusy(false);
+          fetchInfo().then(setInfo, () => {});
         },
       );
     } catch (e) {
@@ -96,9 +104,21 @@ export default function App() {
             </label>
           ))}
         </div>
-        <button className="primary" onClick={run} disabled={!example || busy}>
-          {busy ? "Running…" : "Break it and repair it"}
-        </button>
+        <div className="actions">
+          <button className="primary" onClick={() => run()} disabled={!example || busy}>
+            {busy ? "Running…" : "Break it and repair it"}
+          </button>
+          {info?.mode === "live" && (
+            <>
+              <button className="secondary" onClick={() => run("demo")} disabled={!example || busy}>
+                Watch the scripted run
+              </button>
+              <span className="note">
+                {info.live_runs_left_today ?? 0} live runs left today
+              </span>
+            </>
+          )}
+        </div>
       </section>
 
       {error && (

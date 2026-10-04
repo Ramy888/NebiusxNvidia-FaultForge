@@ -48,5 +48,5 @@ test("the last step reads as done once the run has finished", async () => {
   const { PhaseBar } = await import("./PhaseBar");
   const { container } = render(<PhaseBar phase="done" />);
 
-  expect(container.querySelectorAll(".phase-done")).toHaveLength(4);
+  expect(container.querySelectorAll(".phase-done")).toHaveLength(5);
 });

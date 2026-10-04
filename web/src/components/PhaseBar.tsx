@@ -1,12 +1,13 @@
 import type { Phase } from "../runModel";
 
 const STEPS: { phase: Phase; label: string }[] = [
+  { phase: "preparing", label: "Find & research" },
   { phase: "baseline", label: "Inject failures" },
   { phase: "planning", label: "Plan repairs" },
   { phase: "replaying", label: "Replay every failure" },
   { phase: "done", label: "Verdict" },
 ];
-const ORDER: Phase[] = ["idle", "baseline", "planning", "replaying", "done"];
+const ORDER: Phase[] = ["idle", "preparing", "baseline", "planning", "replaying", "done"];
 
 export function PhaseBar({ phase }: { phase: Phase }) {
   const current = phase === "failed" ? -1 : ORDER.indexOf(phase);

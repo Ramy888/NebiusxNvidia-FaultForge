@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { fetchExamples, fetchInfo, fetchRun, followRun, startRun } from "./api";
+import { Activity } from "./components/Activity";
 import { AttemptTree } from "./components/AttemptTree";
 import { Evidence } from "./components/Evidence";
 import { PhaseBar } from "./components/PhaseBar";
@@ -109,6 +110,7 @@ export default function App() {
       {model.phase !== "idle" && (
         <>
           <PhaseBar phase={model.phase} />
+          <Activity model={model} />
           {model.failure && (
             <p className="callout" role="status">
               <strong>Reproduced:</strong> {model.failure.message}

@@ -136,9 +136,10 @@ def run_baseline(
     scenarios: list[Scenario],
     events: EventLog,
     max_workers: int = 4,
+    label: str = "baseline",
 ) -> Branch:
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        return _Runner(sandbox, scenarios, events, pool).branch(base, "baseline")
+        return _Runner(sandbox, scenarios, events, pool).branch(base, label)
 
 
 def replay(

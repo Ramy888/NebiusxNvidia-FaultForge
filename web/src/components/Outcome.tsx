@@ -6,6 +6,7 @@ const LABELS: Record<CheckState, string> = {
   failed: "failed",
   error: "error",
   timed_out: "timed out",
+  discarded: "discarded",
 };
 
 export function OutcomeChip({ state }: { state: CheckState }) {

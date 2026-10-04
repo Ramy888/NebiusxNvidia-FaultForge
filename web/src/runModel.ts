@@ -1,6 +1,6 @@
 import type { ServerEvent } from "./types";
 
-export type CheckState = "running" | "passed" | "failed" | "error" | "timed_out";
+export type CheckState = "running" | "passed" | "failed" | "error" | "timed_out" | "discarded";
 
 export interface CheckNode {
   name: string;
@@ -18,7 +18,7 @@ export interface BranchNode {
   checkOrder: string[];
 }
 
-export type Phase = "idle" | "baseline" | "planning" | "replaying" | "done" | "failed";
+export type Phase = "idle" | "preparing" | "baseline" | "planning" | "replaying" | "done" | "failed";
 
 export interface RunModel {
   phase: Phase;
@@ -34,6 +34,9 @@ export interface RunModel {
   status?: string;
   winner?: string | null;
   error?: string;
+  /** Human-readable log of the preparation steps (live mode): discovery, research, test writing. */
+  activity: string[];
+  written: Record<string, { fault: string; title: string }>;
 }
 
 export const initialModel = (): RunModel => ({
@@ -45,7 +48,17 @@ export const initialModel = (): RunModel => ({
   strategies: [],
   discarded: [],
   research: [],
+  activity: [],
+  written: {},
 });
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const faultName = (fault: string) => fault.replace(/_/g, " ");
+
+function note(model: RunModel, line: string): RunModel {
+  const phase = model.phase === "idle" ? "preparing" : model.phase;
+  return { ...model, phase, activity: [...model.activity, line] };
+}
 
 function withBranch(model: RunModel, id: string, patch: Partial<BranchNode> = {}): RunModel {
   const existing = model.branches[id];
@@ -80,16 +93,45 @@ function withCheck(model: RunModel, branchId: string, check: CheckNode): RunMode
 /** Folds one server event into the run model. Pure, so the UI can replay any stream. */
 export function applyEvent(model: RunModel, event: ServerEvent): RunModel {
   const d = event.data;
+  // Generated tests are checked once before the real baseline; those runs are not attempts.
+  if (d.branch === "validation") return model;
   switch (event.type) {
     case "pipeline_started":
       return withBranch(
         { ...model, phase: "baseline", repo: d.repo, scenarios: d.scenarios ?? [] },
         "baseline",
       );
-    case "dependencies_found":
-      return { ...model, dependency: (d.dependencies ?? [])[0] };
+    case "call_sites_found":
+      return note(model, `Found ${plural((d.sites ?? []).length, "outbound HTTP call")}`);
+    case "no_dependencies":
+      return note(model, "No outbound HTTP dependency found");
+    case "dependencies_found": {
+      const dependency = (d.dependencies ?? [])[0];
+      return note({ ...model, dependency }, dependency ? `Dependency: ${dependency}` : "No dependency identified");
+    }
     case "research_finished":
-      return { ...model, research: d.sources ?? [] };
+      return note(
+        { ...model, research: d.sources ?? [] },
+        `Researched how it fails: ${plural((d.sources ?? []).length, "source")}`,
+      );
+    case "research_failed":
+    case "research_skipped":
+      return note(model, "Web research unavailable; continuing without it");
+    case "scenarios_planned":
+      return note(model, `Planned ${plural((d.scenarios ?? []).length, "failure scenario")}`);
+    case "scenario_written":
+      return note(
+        { ...model, written: { ...model.written, [d.scenario]: { fault: d.fault, title: d.title } } },
+        `Wrote a ${faultName(d.fault)} test: ${d.title}`,
+      );
+    case "scenario_triaged": {
+      const title = model.written[d.scenario]?.title ?? d.scenario;
+      return d.verdict === "test_mistake"
+        ? note(model, `Review: the ${title} test had a mistake (${d.reason}); asked for a fix`)
+        : note(model, `Review: ${title} is a real application bug`);
+    }
+    case "scenario_fixed":
+      return note(model, `Fixed the ${faultName(d.fault)} test`);
     case "run_started":
       return withCheck(model, d.branch, { name: d.check, state: "running", message: "" });
     case "run_finished":
@@ -99,11 +141,20 @@ export function applyEvent(model: RunModel, event: ServerEvent): RunModel {
         message: d.message ?? "",
         durationS: d.duration_s,
       });
-    case "scenario_discarded":
-      return {
+    case "scenario_discarded": {
+      const reason = String(d.reason ?? "").split("\n")[0].slice(0, 120);
+      const baseline = model.branches.baseline;
+      let next: RunModel = {
         ...model,
         discarded: [...model.discarded, { scenario: d.scenario, reason: d.reason }],
       };
+      if (baseline?.checks[d.scenario]) {
+        next = withCheck(next, "baseline", { name: d.scenario, state: "discarded", message: reason });
+      }
+      return model.phase === "idle" || model.phase === "preparing"
+        ? note(next, `Discarded a broken test: ${reason}`)
+        : next;
+    }
     case "failure_reproduced":
       return {
         ...model,

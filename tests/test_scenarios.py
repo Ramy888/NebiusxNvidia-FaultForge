@@ -332,3 +332,24 @@ def test_triage_keeps_an_application_bug():
 
     assert [s.fault for s in kept] == ["timeout"]
     assert len([c for c in writer.llm.calls if c.role == "fix"]) == 0
+
+
+def test_validation_runs_are_labelled_separately_from_the_baseline():
+    from faultforge.auto import validate_scenarios
+    from faultforge.scenarios import ScenarioWriter
+
+    plan = json.dumps({"scenarios": [{"fault": "timeout", "invariant": "one fulfillment"}]})
+    events = EventLog()
+    writer = ScenarioWriter(
+        StubLLM(plan=[plan, TRIAGE_BUG], write=[GOOD_FILL]),
+        ORDER_SERVICE_REPO,
+        DEPENDENCY,
+        "",
+        events,
+    )
+
+    with LocalSandbox() as sandbox:
+        validate_scenarios(writer, sandbox, ORDER_SERVICE_REPO, writer.write_all(), events)
+
+    branches = {e.data["branch"] for e in events.items() if e.type == "run_finished"}
+    assert branches == {"validation"}

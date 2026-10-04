@@ -74,7 +74,7 @@ def _problems(
     if not scenarios:
         return []
     base = prepare_workspace(sandbox, source, scenarios, setup)
-    baseline = run_baseline(sandbox, base, scenarios, events)
+    baseline = run_baseline(sandbox, base, scenarios, events, label="validation")
     results = []
     for scenario in scenarios:
         check = baseline.scenarios[scenario.id]

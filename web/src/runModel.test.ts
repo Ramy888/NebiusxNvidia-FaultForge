@@ -93,3 +93,46 @@ test("a failed run is terminal and keeps the error", () => {
 
   expect(model).toMatchObject({ phase: "failed", error: "boom" });
 });
+
+test("preparation events build a readable activity feed and a preparing phase", () => {
+  const model = fold([
+    ev("call_sites_found", { sites: ["orders/fulfillment.py:FulfillmentClient.create"] }),
+    ev("dependencies_found", { dependencies: ["Fulfillment API"] }),
+    ev("research_finished", { sources: [{ title: "Stripe", url: "https://s" }] }),
+    ev("scenarios_planned", { scenarios: [{ fault: "timeout" }, { fault: "malformed" }] }),
+    ev("scenario_written", { scenario: "t1", fault: "timeout", title: "times out" }),
+    ev("scenario_triaged", { scenario: "t1", verdict: "test_mistake", reason: "reads unknown order" }),
+    ev("scenario_fixed", { scenario: "t1", fault: "timeout", title: "times out" }),
+  ]);
+
+  expect(model.phase).toBe("preparing");
+  expect(model.activity).toEqual([
+    "Found 1 outbound HTTP call",
+    "Dependency: Fulfillment API",
+    "Researched how it fails: 1 source",
+    "Planned 2 failure scenarios",
+    "Wrote a timeout test: times out",
+    "Review: the times out test had a mistake (reads unknown order); asked for a fix",
+    "Fixed the timeout test",
+  ]);
+});
+
+test("discarded scenarios are marked in the tree instead of looking like failures", () => {
+  const model = fold([
+    STARTED,
+    ev("run_finished", { branch: "baseline", check: "timeout_duplicate", outcome: "failed", message: "KeyError" }),
+    ev("scenario_discarded", { scenario: "timeout_duplicate", reason: "KeyError: 'id' in the test" }),
+  ]);
+
+  expect(model.branches.baseline.checks.timeout_duplicate.state).toBe("discarded");
+});
+
+test("validation runs during preparation do not appear in the attempt tree", () => {
+  const model = fold([
+    ev("run_finished", { branch: "validation", check: "t1", outcome: "failed", message: "x" }),
+    STARTED,
+  ]);
+
+  expect(model.branchOrder).toEqual(["baseline"]);
+  expect(model.branches.baseline.checkOrder).toEqual([]);
+});

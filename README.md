@@ -86,9 +86,8 @@ when the app is reached directly, or clients could spoof the header.
 ## Live mode (Nemotron + Sandboxes + Tavily)
 
 ```bash
-cp .env.example .env                      # NEBIUS_API_KEY, TAVILY_API_KEY
-uv sync --extra contree && uv run contree auth
-uv run --env-file .env faultforge run examples/order-service --sandbox contree
+cp .env.example .env      # NEBIUS_API_KEY, NEBIUS_PROJECT_ID, TAVILY_API_KEY
+uv run --extra contree --env-file .env faultforge run examples/order-service --sandbox contree
 ```
 
 Without `--scenario`, FaultForge discovers the dependency, researches it and writes the scenarios itself. With `--open-pr` it commits the repair and regression test on a new branch of the target repo and opens a GitHub pull request.

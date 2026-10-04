@@ -5,7 +5,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 ## Needs Ramy (blocks Phase 2)
 - [ ] Nebius account → Token Factory API key + project ID
 - [ ] Claim credits: promo code `NEBIUS-DEVPOST-GLOBAL26` + Builders Program
-- [ ] Request Sandboxes beta access
+- [x] Request Sandboxes beta access (submitted 2026-10-04; credentials verified, awaiting enablement)
 - [x] Tavily API key (free plan; in .env)
 
 ## Phase 0 — Foundation (offline)

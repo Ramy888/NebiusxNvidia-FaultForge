@@ -1,6 +1,8 @@
 # Spike: Token Factory Sandboxes (Contree)
 
-**Status: adapter built against the SDK's real API; live run pending Sandboxes beta access.**
+**Status: beta access requested 2026-10-04 (Token Factory console → Sandboxes → Request beta access). Credentials are verified: a real call returns 403 Forbidden (not enabled yet), not 401.**
+
+Sandboxes use the **same Nebius API key and project ID** as inference: `NEBIUS_API_KEY` and `NEBIUS_PROJECT_ID`. No separate token or `contree auth` is needed.
 
 ## What the SDK showed (contree-sdk 0.3.6, inspected 2026-10-03)
 
@@ -14,9 +16,7 @@
 ## Still to confirm live
 
 ```bash
-uv sync --extra contree
-contree auth                      # token + project id
-FAULTFORGE_LIVE_CONTREE=1 uv run pytest tests/sandbox/test_contree_live.py
+FAULTFORGE_LIVE_CONTREE=1 uv run --extra contree --env-file .env pytest tests/sandbox/test_contree_live.py
 ```
 
 1. Is `python:3.12-slim` available via `images.use`, or must it be imported first (`images.oci(...)`)?

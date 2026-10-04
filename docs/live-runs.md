@@ -17,6 +17,12 @@ least one reproduced failure fixed.
 | 7 | traceback check for test bugs instead of the control run | 5 / 8 (webhook 4 / 4) |
 | 8 | second attempts escalate to Ultra with reasoning | 5 / 8 reported, **3–4 / 8 genuine** (order 2 / 4, webhook 1–2 / 4) |
 
+| 9 | triage each reproduced failure: application bug or test mistake | **6 / 8, all genuine** (order 2 / 4, webhook 4 / 4) |
+
+Iteration 9's winners were all read: every one changes the dependency path (`Idempotency-Key`
+header; `raise_for_status()` / `if not response.is_success` in the payment verifier). Triage
+flagged 16 generated tests as test mistakes across the 8 runs and sent them back to the writer.
+
 **Reading the winning patches changed the numbers.** Some "repairs" fixed a mistake in the
 generated test rather than the app: the test never created the order it then looked up
 (`KeyError: 'order_456'`), and the winning patch made `OrderBook.status` return `"unknown"` for

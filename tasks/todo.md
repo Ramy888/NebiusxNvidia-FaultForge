@@ -24,7 +24,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 ## Phase 2 — Live platform
 - [x] T8 Token Factory client + spike (verified live 2026-10-04)
 - [x] T9 ContreeSandbox + spike (live run pending: Sandboxes access)
-- [~] T10 Live repair loop — live on Nemotron since 2026-10-04: 5/8 runs repaired (target 4/5); Contree sandbox still pending
+- [~] T10 Live repair loop — 6/8 live runs genuinely repaired after triage (2026-10-04); Contree sandbox pending
 - [ ] **Checkpoint C** — go / no-go on the track (Oct 7–9): needs credentials
 
 ## Phase 3 — Scenario generation

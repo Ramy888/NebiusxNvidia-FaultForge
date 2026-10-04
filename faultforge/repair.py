@@ -115,11 +115,13 @@ def revise_repair(
         f"{_context(collect_source_files(source), scenario, failure, others)}\n\n"
         f"## Strategy\n{candidate.summary}\n\n## Your previous patch\n{current}\n\n"
         f"## Verification of that patch\n{verification}\n\n"
-        "Revise the patch so the failure scenarios pass and the existing tests still pass. "
-        "Return the complete revised files."
+        "First work out why the previous patch did not change the failing behaviour (for "
+        "example a new parameter that no caller passes, or a fix in the wrong layer). Then "
+        "revise it so the failure scenarios pass and the existing tests still pass, changing "
+        "every file that needs it. Return the complete revised files."
     )
     try:
-        written = _ask(llm, "write", WRITE_SYSTEM, request, _validate_files, parse_files)
+        written = _ask(llm, "fix", WRITE_SYSTEM, request, _validate_files, parse_files)
     except (RepairError, LLMError) as error:
         events.emit("candidate_rejected", candidate=f"{candidate.id}_revised", reason=str(error))
         return None

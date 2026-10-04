@@ -201,7 +201,7 @@ class ScenarioWriter:
             "The failure comes from a mistake in the test, not from the application. "
             "Return the corrected complete file."
         )
-        fixed = self._write(fault, invariant, prompt, attempts=1)
+        fixed = self._write(fault, invariant, prompt, attempts=1, role="fix")
         if fixed is None:
             return None
         fixed = Scenario(scenario.id, fixed.title, fixed.fault, fixed.test_code)
@@ -217,14 +217,16 @@ class ScenarioWriter:
             f"{EXAMPLE_TEST}```"
         )
 
-    def _write(self, fault: str, invariant: str, request: str, attempts: int = 2):
+    def _write(
+        self, fault: str, invariant: str, request: str, attempts: int = 2, role: str = "write"
+    ):
         error = ""
         for _ in range(attempts):
             prompt = (
                 request if not error else f"{request}\n\nYour previous answer was invalid: {error}"
             )
             try:
-                raw = self.llm.complete("write", WRITE_SYSTEM, prompt)
+                raw = self.llm.complete(role, WRITE_SYSTEM, prompt)
                 return build_scenario(fault, raw, invariant, self.symbols)
             except (LLMError, ValueError, SyntaxError) as problem:
                 error = str(problem)

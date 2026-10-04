@@ -103,3 +103,18 @@ def test_writer_thinking_is_off_and_json_mode_only_applies_to_planning():
     assert "extra_body" not in plan_request
     assert "response_format" not in write_request
     assert write_request["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def test_fix_role_uses_the_reasoning_model_with_reasoning_on_and_no_json_mode():
+    FakeOpenAI.instances = []
+    llm = TokenFactoryLLM(
+        TokenFactoryConfig.from_env(ENV | {"TF_JSON_MODE": "1"}), client_factory=FakeOpenAI
+    )
+
+    llm.complete("fix", "s", "u")
+
+    request = next(c for c in FakeOpenAI.instances if c.requests).requests[0]
+    assert request["model"] == "nvidia/ultra"
+    assert "response_format" not in request and "extra_body" not in request
+    assert request["max_tokens"] >= 16000
+    assert llm.usage["fix"]["calls"] == 1

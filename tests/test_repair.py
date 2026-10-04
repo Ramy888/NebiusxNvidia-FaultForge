@@ -112,3 +112,11 @@ def test_source_files_exclude_tests_and_virtualenvs():
 
     assert "orders/service.py" in files
     assert not any(path.startswith(("tests/", ".venv/")) for path in files)
+
+
+def test_stub_answers_fix_requests_from_its_write_queue_unless_given_fix_answers():
+    llm = StubLLM(write=["from write"])
+    assert llm.complete("fix", "s", "u") == "from write"
+
+    llm = StubLLM(write=["from write"], fix=["from fix"])
+    assert llm.complete("fix", "s", "u") == "from fix"

@@ -16,6 +16,7 @@ DEFAULT_PLAN_BASE_URL = "https://api.tokenfactory.us-central1.nebius.com/v1"
 DEFAULT_PLAN_MODEL = "nvidia/Nemotron-3-Ultra-550b-a55b"
 DEFAULT_WRITE_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
 DEFAULT_WRITE_MODEL = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+REASONING_MAX_TOKENS = 16384
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,9 @@ class TokenFactoryLLM:
                 config.write_model,
             ),
         }
+        # Escalation: when the fast writer's attempt fails verification, the reasoning model
+        # (with its reasoning on) writes the fix.
+        self._routes["fix"] = self._routes["plan"]
         self.usage = {
             role: {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0} for role in self._routes
         }
@@ -75,7 +79,8 @@ class TokenFactoryLLM:
             "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": self._config.temperature,
-            "max_tokens": self._config.max_tokens,
+            # Reasoning output counts against max_tokens, so the reasoning roles get more room.
+            "max_tokens": self._config.max_tokens if role == "write" else REASONING_MAX_TOKENS,
         }
         # Only the planning role answers in JSON; the writer answers with code blocks.
         if self._config.json_mode and role == "plan":

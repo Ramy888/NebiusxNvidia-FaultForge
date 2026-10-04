@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 # "plan": deep analysis (Nemotron Ultra). "write": fast generation of tests and patches (Nano).
-Role = Literal["plan", "write"]
+# "fix": a second attempt after verification failed, by the reasoning model.
+Role = Literal["plan", "write", "fix"]
 
 
 class LLMError(Exception):

@@ -1,5 +1,6 @@
 import json
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -102,3 +103,13 @@ def test_info_says_honestly_which_mode_is_running(client):
     assert info["mode"] == "demo"
     assert "scripted" in info["description"]
     assert "no Nemotron calls" in info["description"]
+
+
+@pytest.mark.skipif(
+    not (Path(__file__).parents[1] / "web" / "dist").is_dir(), reason="UI not built"
+)
+def test_the_page_itself_is_never_cached_so_new_releases_load(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"

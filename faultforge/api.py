@@ -29,6 +29,17 @@ from .serialize import result_to_dict
 WEB_DIST = Path(__file__).resolve().parents[1] / "web" / "dist"
 
 
+class _PageFiles(StaticFiles):
+    """Serve the UI; the HTML page is revalidated on every load so a new release is picked up.
+    Bundled assets have content hashes in their names, so they may be cached normally."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.media_type == "text/html":
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 class RunRequest(BaseModel):
     example: str
 
@@ -172,7 +183,7 @@ def create_app(
         return StreamingResponse(stream(), media_type="text/event-stream")
 
     if WEB_DIST.is_dir():
-        app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="web")
+        app.mount("/", _PageFiles(directory=WEB_DIST, html=True), name="web")
     return app
 
 

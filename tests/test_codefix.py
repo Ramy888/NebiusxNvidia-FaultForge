@@ -8,8 +8,8 @@ from faultforge.codefix import add_missing_imports, normalize_code, top_level_sy
 from faultforge.events import EventLog
 from faultforge.llm import StubLLM
 from faultforge.models import Scenario
-from faultforge.repair import generate_repairs
-from faultforge.scenarios import _render
+from faultforge.repair import generate_repairs, parse_files
+from faultforge.scenarios import build_scenario
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "order-service"
 
@@ -43,23 +43,32 @@ def test_missing_application_imports_are_added():
     ast.parse(fixed)
 
 
-def test_rendered_scenario_survives_the_live_failure_modes():
-    fill = {
-        "title": "Duplicate delivery",
-        "test_name": "duplicate_delivery",
-        "imports": "from faultkit import FakeAPI, FaultyTransport, Duplicate\nimport httpx\n"
-        "from orders.service import OrderService",
-        "arrange": "    service = OrderService(FulfillmentClient(http, base_url='http://x'))",
-        "act": "order = service.place_order('c', [])\\nresult = order",
-        "assertions": "assert len(dependency.accepted) == 1, 'two fulfillments'",
-    }
+def test_extracted_scenario_survives_the_live_failure_modes():
+    raw = (
+        "<think>hmm</think>Sure!\n```python\n"
+        "from faultkit import FaultyTransport, DuplicateDelivery\nimport httpx\n"
+        "from orders.service import OrderService\n\n"
+        "def test_duplicate_delivery():\n    dependency = FakeAPI()\n"
+        "    http = httpx.Client(transport=FaultyTransport(dependency, DuplicateDelivery()))\n"
+        "    service = OrderService(FulfillmentClient(http, base_url='http://x'))\n"
+        "    service.place_order('c', [])\n"
+        "    assert len(dependency.accepted) == 1, 'two fulfillments'\n```"
+    )
 
-    scenario = _render("duplicate_delivery", fill, top_level_symbols(EXAMPLE))
+    scenario = build_scenario(
+        "duplicate_delivery", raw, "one fulfillment", top_level_symbols(EXAMPLE)
+    )
 
     ast.parse(scenario.test_code)
-    assert "Duplicate\n" not in scenario.test_code and "Duplicate," not in scenario.test_code
+    assert "from faultkit import FakeAPI" in scenario.test_code
     assert "from orders.fulfillment import FulfillmentClient" in scenario.test_code
-    assert scenario.test_code.count("import httpx") == 1
+    assert scenario.id == "duplicate_delivery_duplicate_delivery"
+
+
+def test_files_can_be_returned_as_fenced_blocks():
+    raw = "### orders/a.py\n```python\nA = 1\n```\n\n### `orders/b.py`\n```python\nB = 2\n```"
+
+    assert parse_files(raw) == {"files": {"orders/a.py": "A = 1\n", "orders/b.py": "B = 2\n"}}
 
 
 def test_patches_with_syntax_errors_are_retried_then_rejected():

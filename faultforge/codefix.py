@@ -7,10 +7,21 @@ asking the model again.
 
 import ast
 import builtins
+import re
 import textwrap
 from pathlib import Path
 
 from .repair import collect_source_files
+
+_THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
+_FENCE = re.compile(r"```(?:python|py)?[ \t]*\n(.*?)```", re.DOTALL)
+
+
+def extract_code(raw) -> str:
+    """The first fenced code block in a model answer, or the whole answer if there is none."""
+    text = _THINK.sub("", str(raw))
+    match = _FENCE.search(text)
+    return match.group(1) if match else text
 
 
 def normalize_code(text) -> str:
@@ -57,5 +68,8 @@ def add_missing_imports(code: str, symbols: dict[str, str]) -> str:
     last_import = max(
         (n.end_lineno for n in tree.body if isinstance(n, ast.Import | ast.ImportFrom)), default=0
     )
-    added = [f"from {symbols[name]} import {name}" for name in missing]
+    added = [
+        f"import {name}" if symbols[name] == name else f"from {symbols[name]} import {name}"
+        for name in missing
+    ]
     return "\n".join(lines[:last_import] + added + lines[last_import:]) + "\n"

@@ -189,22 +189,23 @@ def _execute(run: Run, mode: str, sandbox_name: str = "local") -> None:
     try:
         assets, repo = EXAMPLES[run.example]
         found = None
-        if mode == "live":
-            from .cli import _live_llm, _researcher, _sandbox
+        from .cli import REMOTE_SETUP, _live_llm, _researcher, _sandbox
 
-            llm = _live_llm()
-            found = auto_scenarios(llm, repo, _researcher(), run.events)
-            scenarios = found.scenarios
-        else:
-            llm = load_stub(assets / "llm_responses.json")
-            scenarios = [scenario_from_file(p) for p in sorted((assets / "scenarios").glob("*.py"))]
-        if not scenarios:
-            raise RuntimeError("no testable scenarios were found")
         # Demo mode replays scripted, reviewed patches, so the local sandbox is acceptable there.
         sandbox = _sandbox(sandbox_name) if mode == "live" else LocalSandbox()
         remote = mode == "live" and sandbox_name == "contree"
-        setup = "python -m pip install -q httpx pytest" if remote else None
+        setup = REMOTE_SETUP if remote else None
         with sandbox:
+            if mode == "live":
+                llm = _live_llm()
+                found = auto_scenarios(llm, repo, _researcher(), run.events, sandbox, setup)
+                scenarios = found.scenarios
+            else:
+                llm = load_stub(assets / "llm_responses.json")
+                files = sorted((assets / "scenarios").glob("*.py"))
+                scenarios = [scenario_from_file(p) for p in files]
+            if not scenarios:
+                raise RuntimeError("no testable scenarios were found")
             result = run_pipeline(repo, scenarios, llm, sandbox, run.events, setup=setup)
         run.pipeline_result, run.found = result, found
         run.result = result_to_dict(result, found)

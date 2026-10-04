@@ -86,3 +86,20 @@ def test_json_mode_is_opt_in(llm):
     )
     json_llm.complete("plan", "s", "u")
     assert FakeOpenAI.instances[-2].requests[0]["response_format"] == {"type": "json_object"}
+
+
+def test_writer_thinking_is_off_and_json_mode_only_applies_to_planning():
+    FakeOpenAI.instances = []
+    llm = TokenFactoryLLM(
+        TokenFactoryConfig.from_env(ENV | {"TF_JSON_MODE": "1"}), client_factory=FakeOpenAI
+    )
+
+    llm.complete("plan", "s", "u")
+    llm.complete("write", "s", "u")
+
+    plan_request = FakeOpenAI.instances[0].requests[0]
+    write_request = FakeOpenAI.instances[1].requests[0]
+    assert plan_request["response_format"] == {"type": "json_object"}
+    assert "extra_body" not in plan_request
+    assert "response_format" not in write_request
+    assert write_request["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}

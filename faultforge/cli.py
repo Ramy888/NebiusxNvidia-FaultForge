@@ -79,20 +79,21 @@ def main(argv: list[str] | None = None) -> int:
     events = EventLog()
     events.subscribe(_print_progress)
     found = None
-    if scenario_files:
-        scenarios = [scenario_from_file(p) for p in scenario_files]
-    else:
-        found = auto_scenarios(llm, repo, _researcher(), events)
-        scenarios = found.scenarios
-        if not scenarios:
-            print("faultforge: no testable HTTP dependency scenarios found", file=sys.stderr)
-            return 1
     try:
         sandbox = _sandbox(sandbox_name)
     except SandboxError as error:
         print(f"faultforge: {error}", file=sys.stderr)
         return 2
     with sandbox:
+        if scenario_files:
+            scenarios = [scenario_from_file(p) for p in scenario_files]
+        else:
+            # Generated tests are run once in the sandbox; broken ones go back to the writer.
+            found = auto_scenarios(llm, repo, _researcher(), events, sandbox, setup)
+            scenarios = found.scenarios
+            if not scenarios:
+                print("faultforge: no testable HTTP dependency scenarios found", file=sys.stderr)
+                return 1
         result = run_pipeline(
             repo,
             scenarios,

@@ -26,6 +26,8 @@ class TokenFactoryConfig:
     write_base_url: str
     write_model: str
     json_mode: bool = False
+    # Nemotron Nano reasons by default; for writing code it mostly costs time and tokens.
+    write_thinking: bool = False
     temperature: float = 0.2
     max_tokens: int = 8192
     timeout_s: float = 180
@@ -42,6 +44,7 @@ class TokenFactoryConfig:
             write_base_url=env.get("WRITE_BASE_URL") or DEFAULT_WRITE_BASE_URL,
             write_model=env.get("WRITE_MODEL") or DEFAULT_WRITE_MODEL,
             json_mode=env.get("TF_JSON_MODE", "") in ("1", "true", "yes"),
+            write_thinking=env.get("TF_WRITE_THINKING", "") in ("1", "true", "yes"),
         )
 
 
@@ -74,8 +77,11 @@ class TokenFactoryLLM:
             "temperature": self._config.temperature,
             "max_tokens": self._config.max_tokens,
         }
-        if self._config.json_mode:
+        # Only the planning role answers in JSON; the writer answers with code blocks.
+        if self._config.json_mode and role == "plan":
             request["response_format"] = {"type": "json_object"}
+        if role == "write" and not self._config.write_thinking:
+            request["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
         try:
             response = client.chat.completions.create(**request)
         except Exception as error:  # the SDK raises many transport/HTTP error types

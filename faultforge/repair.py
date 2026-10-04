@@ -1,6 +1,7 @@
 """Plan distinct repair strategies (reasoning model), then write each one (fast model)."""
 
 import json
+import re
 from pathlib import Path, PurePosixPath
 
 from .events import EventLog
@@ -30,9 +31,24 @@ failure. Respond with JSON only:
 {"strategies": [{"id": "snake_case_id", "summary": "one line", "approach": "what to change"}]}"""
 
 WRITE_SYSTEM = """You implement one repair strategy in a Python codebase.
-Return the complete new content of every file you change. Do not modify tests or the faultkit
-package. Keep the change minimal and keep existing behaviour that the tests rely on.
-Respond with JSON only: {"files": {"relative/path.py": "full new file content"}}"""
+Return the complete new content of every file you change. Do not modify tests, test
+configuration or the faultkit package. Keep the change minimal and keep the existing behaviour
+and signatures that the tests rely on. Format each changed file exactly like this:
+### relative/path.py
+```python
+<the complete file>
+```"""
+
+_FILE_BLOCK = re.compile(
+    r"^#{2,4}\s*`?([\w./-]+\.\w+)`?\s*\n```[\w]*[ \t]*\n(.*?)```", re.DOTALL | re.MULTILINE
+)
+
+
+def parse_files(raw: str) -> dict:
+    """Files from `### path` + fenced block pairs; falls back to {"files": {...}} JSON."""
+    text = re.sub(r"<think>.*?</think>", "", str(raw), flags=re.DOTALL)
+    files = {path: body for path, body in _FILE_BLOCK.findall(text)}
+    return {"files": files} if files else parse_json(text)
 
 
 class RepairError(Exception):
@@ -71,7 +87,7 @@ def generate_repairs(
     for strategy in strategies:
         request = f"{context}\n\nImplement this strategy:\n{json.dumps(strategy, indent=2)}"
         try:
-            written = _ask(llm, "write", WRITE_SYSTEM, request, _validate_files)
+            written = _ask(llm, "write", WRITE_SYSTEM, request, _validate_files, parse_files)
         except (RepairError, LLMError) as error:
             events.emit("candidate_rejected", candidate=strategy["id"], reason=str(error))
             continue
@@ -90,12 +106,12 @@ def _context(sources: dict[str, str], scenario: Scenario, failure: str) -> str:
     )
 
 
-def _ask(llm: LLM, role: Role, system: str, user: str, validate) -> dict:
+def _ask(llm: LLM, role: Role, system: str, user: str, validate, parse=parse_json) -> dict:
     prompt = user
     for attempt in range(2):
         raw = llm.complete(role, system, prompt)
         try:
-            data = parse_json(raw)
+            data = parse(raw)
             validate(data)
             return data
         except (LLMError, ValueError, SandboxError) as error:

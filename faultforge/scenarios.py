@@ -3,7 +3,7 @@
 import ast
 from pathlib import Path
 
-from .codefix import add_missing_imports, normalize_code, top_level_symbols
+from .codefix import add_missing_imports, extract_code, normalize_code, top_level_symbols
 from .llm import LLMError, parse_json
 from .models import Scenario
 from .repair import collect_source_files
@@ -56,24 +56,42 @@ FAULT_GUIDANCE = {
     "exactly one side effect at the dependency (the app must make the call idempotent).",
 }
 
-TEMPLATE = '''"""FaultForge scenario: {title}"""
+FAULT_KIT_DOC = """Fault kit API (importable as `faultkit`):
+- FakeAPI(status=201, id_prefix="res", body=None): an in-process fake of the external service.
+  Every request it processes is appended to `.accepted` (the parsed JSON body). It answers
+  `status` with JSON {"id": "<id_prefix>_<n>", "status": "accepted", **body}. It honours the
+  Idempotency-Key header: a repeated key returns the first result and is not processed again.
+- FaultyTransport(handler, *faults): an httpx transport. Use it as
+  httpx.Client(transport=FaultyTransport(fake, fault)).
+- Timeout(on_calls={1}, after_processing=True): the request is processed, then httpx.ReadTimeout.
+- RateLimit(on_calls={1}, retry_after=1): HTTP 429 with Retry-After; the request is NOT processed.
+- Malformed(on_calls={1}): the request is processed, the response body is truncated JSON.
+- DuplicateDelivery(on_calls={1}): the request reaches the fake twice."""
+
+# A worked example for an application that is NOT the one under test, so it teaches the shape
+# of a good scenario without leaking an answer.
+EXAMPLE_TEST = '''"""FaultForge scenario: the warehouse reserves stock but the response times out"""
 
 import httpx
-import pytest
-from faultkit import FakeAPI, FaultyTransport, {fault_class}
+from faultkit import FakeAPI, FaultyTransport, Timeout
 
-{imports}
+from inventory.client import WarehouseClient
+from inventory.reservations import ReservationService
 
 
-def test_{test_name}():
-    dependency = FakeAPI({fake_api_args})
-    transport = FaultyTransport(dependency, {fault_expr})
-    http = httpx.Client(transport=transport)
-{arrange}
+def test_one_checkout_reserves_stock_once_when_the_response_times_out():
+    warehouse = FakeAPI(status=201)
+    http = httpx.Client(
+        transport=FaultyTransport(warehouse, Timeout(on_calls={1}, after_processing=True))
+    )
+    service = ReservationService(WarehouseClient(http, base_url="https://warehouse.test"))
 
-{act}
+    reservation = service.reserve("sku-1", quantity=2)
 
-{assertions}
+    assert len(warehouse.accepted) == 1, (
+        f"one checkout reserved stock {len(warehouse.accepted)} times at the warehouse"
+    )
+    assert reservation.status == "reserved", "the checkout did not end up reserved"
 '''
 
 PLAN_SYSTEM = """You design failure-injection tests for one HTTP dependency of a Python backend.
@@ -83,20 +101,24 @@ application must keep. Use the research notes on how the real service behaves wh
 Respond with JSON only:
 {"scenarios": [{"fault": "timeout", "invariant": "one sentence"}]}"""
 
-WRITE_SYSTEM = """You fill in a pytest template that injects one dependency fault.
-The template already provides `dependency` (a fake of the external API whose `.accepted` list
-records every request it processed) and `http` (an httpx.Client wired to it with the fault).
-`fake_api_args` configures the fake: e.g. `status=200, body={"status": "failed"}` makes every
-processed request answer HTTP 200 with that JSON merged into {"id": ..., "status": "accepted"}.
-Fill the parts so the test builds the application with `http`, performs the operation once, and
-asserts the invariant. Use only names that exist in the application source. Do not catch the
-assertion. Give assertions a message that states what went wrong in plain words.
-httpx, pytest, FakeAPI, FaultyTransport and the fault class are ALREADY imported: `imports` is
-only for the application's own modules. FakeAPI accepts only `status`, `id_prefix` and `body`.
-Write each field as plain, unindented Python lines separated by real newlines.
-Respond with JSON only:
-{"title": "...", "test_name": "snake_case", "fake_api_args": "", "imports": "python import lines",
- "arrange": "python lines", "act": "python lines", "assertions": "python lines"}"""
+WRITE_SYSTEM = """You write one pytest file that injects one dependency fault into a Python
+application and asserts one invariant. Build the application's real classes, giving them an
+httpx.Client whose transport is a FaultyTransport around a FakeAPI. Perform the user operation
+once. Use only names that exist in the application source and the fault kit. The test must fail
+only when the application breaks the invariant; give each assertion a plain-words message.
+Start the file with a docstring: \"\"\"FaultForge scenario: <what goes wrong>\"\"\".
+Reply with exactly one ```python code block containing the complete file, nothing else."""
+
+FAULT_KIT_SYMBOLS = {
+    "FakeAPI": "faultkit",
+    "FaultyTransport": "faultkit",
+    "Timeout": "faultkit",
+    "RateLimit": "faultkit",
+    "Malformed": "faultkit",
+    "DuplicateDelivery": "faultkit",
+    "httpx": "httpx",
+    "pytest": "pytest",
+}
 
 # Failures caused by the generated test itself, not by the application under the fault.
 TEST_BUG_ERRORS = (
@@ -108,61 +130,6 @@ TEST_BUG_ERRORS = (
     "fixture '",
 )
 
-
-def generate_scenarios(llm, source: Path, dependency, research: str, events) -> list[Scenario]:
-    sources = "\n\n".join(
-        f"### {p}\n```python\n{c}```" for p, c in collect_source_files(source).items()
-    )
-    symbols = top_level_symbols(source)
-    context = (
-        f"## Dependency: {dependency.name}\nCalled from: "
-        f"{', '.join(s.ref for s in dependency.call_sites)}\n"
-        f"Operation at risk: {dependency.operation}\nNotes: {dependency.notes}\n\n"
-        f"## Research notes on the real service\n{research or 'none'}\n\n## Source\n{sources}"
-    )
-    try:
-        plan = parse_json(llm.complete("plan", PLAN_SYSTEM, context))
-    except LLMError as error:
-        events.emit("scenario_planning_failed", reason=str(error))
-        return []
-    events.emit("scenarios_planned", scenarios=plan.get("scenarios", []))
-
-    scenarios = []
-    items = plan.get("scenarios")
-    for item in items if isinstance(items, list) else []:
-        if not isinstance(item, dict):
-            continue
-        fault = str(item.get("fault", ""))
-        if fault not in FAULT_EXPRESSIONS:
-            continue
-        request = (
-            f"{context}\n\n## Fault: {fault}\n{FAULT_GUIDANCE[fault]}\n"
-            f"Invariant to assert: {item.get('invariant', '')}\n\n## Template\n```python\n"
-            f"{TEMPLATE}```"
-        )
-        scenario, error = None, ""
-        for _ in range(2):
-            prompt = request if not error else f"{request}\n\nPrevious answer was invalid: {error}"
-            try:
-                fill = parse_json(llm.complete("write", WRITE_SYSTEM, prompt))
-                scenario = _render(fault, fill, symbols)
-                break
-            except (LLMError, ValueError, SyntaxError) as problem:
-                error = str(problem)
-        if scenario is None:
-            events.emit("scenario_discarded", scenario=fault, reason=f"invalid test: {error}")
-            continue
-        events.emit(
-            "scenario_written",
-            scenario=scenario.id,
-            fault=fault,
-            title=scenario.title,
-            test_code=scenario.test_code,
-        )
-        scenarios.append(scenario)
-    return scenarios
-
-
 FAULT_KIT_NAMES = (
     "FakeAPI",
     "FaultyTransport",
@@ -173,6 +140,119 @@ FAULT_KIT_NAMES = (
 )
 
 
+class ScenarioWriter:
+    """Plans scenarios with the reasoning model; writes and fixes test files with the writer."""
+
+    def __init__(self, llm, source: Path, dependency, research: str, events):
+        self.llm, self.source, self.events = llm, source, events
+        self.symbols = top_level_symbols(source) | FAULT_KIT_SYMBOLS
+        sources = "\n\n".join(
+            f"### {p}\n```python\n{c}```" for p, c in collect_source_files(source).items()
+        )
+        self.context = (
+            f"## Dependency: {dependency.name}\nCalled from: "
+            f"{', '.join(s.ref for s in dependency.call_sites)}\n"
+            f"Operation at risk: {dependency.operation}\nNotes: {dependency.notes}\n\n"
+            f"## Research notes on the real service\n{research or 'none'}\n\n## Source\n{sources}"
+        )
+        self._requests: dict[str, tuple[str, str, str]] = {}
+
+    def write_all(self) -> list[Scenario]:
+        try:
+            plan = parse_json(self.llm.complete("plan", PLAN_SYSTEM, self.context))
+        except LLMError as error:
+            self.events.emit("scenario_planning_failed", reason=str(error))
+            return []
+        items = plan.get("scenarios")
+        items = [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+        self.events.emit("scenarios_planned", scenarios=items)
+        scenarios = []
+        for item in items:
+            fault = str(item.get("fault", ""))
+            if fault not in FAULT_EXPRESSIONS:
+                continue
+            invariant = str(item.get("invariant", ""))
+            request = self._request(fault, invariant)
+            scenario = self._write(fault, invariant, request)
+            if scenario is None:
+                continue
+            self._requests[scenario.id] = (fault, invariant, request)
+            self._announce("scenario_written", scenario)
+            scenarios.append(scenario)
+        return scenarios
+
+    def fix(self, scenario: Scenario, output: str) -> Scenario | None:
+        """Send a test that broke for its own reasons back to the writer, with the error."""
+        fault, invariant, request = self._requests.get(
+            scenario.id, (scenario.fault, scenario.title, self._request(scenario.fault, ""))
+        )
+        prompt = (
+            f"{request}\n\n## Your previous file\n```python\n{scenario.test_code}```\n\n"
+            f"## It is broken. pytest output:\n```\n{output[-3000:]}\n```\n"
+            "The failure comes from a mistake in the test, not from the application. "
+            "Return the corrected complete file."
+        )
+        fixed = self._write(fault, invariant, prompt, attempts=1)
+        if fixed is None:
+            return None
+        fixed = Scenario(scenario.id, fixed.title, fixed.fault, fixed.test_code)
+        self._announce("scenario_fixed", fixed)
+        return fixed
+
+    def _request(self, fault: str, invariant: str) -> str:
+        _, fault_expr = FAULT_EXPRESSIONS[fault]
+        return (
+            f"{self.context}\n\n## Fault to inject: {fault}\n{FAULT_GUIDANCE[fault]}\n"
+            f"Use exactly this fault: `{fault_expr}`\nInvariant to assert: {invariant}\n\n"
+            f"## {FAULT_KIT_DOC}\n\n## Example for a different application\n```python\n"
+            f"{EXAMPLE_TEST}```"
+        )
+
+    def _write(self, fault: str, invariant: str, request: str, attempts: int = 2):
+        error = ""
+        for _ in range(attempts):
+            prompt = (
+                request if not error else f"{request}\n\nYour previous answer was invalid: {error}"
+            )
+            try:
+                raw = self.llm.complete("write", WRITE_SYSTEM, prompt)
+                return build_scenario(fault, raw, invariant, self.symbols)
+            except (LLMError, ValueError, SyntaxError) as problem:
+                error = str(problem)
+        self.events.emit("scenario_discarded", scenario=fault, reason=f"invalid test: {error}")
+        return None
+
+    def _announce(self, kind: str, scenario: Scenario) -> None:
+        self.events.emit(
+            kind,
+            scenario=scenario.id,
+            fault=scenario.fault,
+            title=scenario.title,
+            test_code=scenario.test_code,
+        )
+
+
+def generate_scenarios(llm, source: Path, dependency, research: str, events) -> list[Scenario]:
+    return ScenarioWriter(llm, source, dependency, research, events).write_all()
+
+
+def build_scenario(fault: str, raw: str, invariant: str, symbols: dict[str, str]) -> Scenario:
+    code = normalize_code(extract_code(raw))
+    tree = ast.parse(code)
+    tests = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("test")]
+    if not tests:
+        raise ValueError("the file has no test function")
+    fault_class, _ = FAULT_EXPRESSIONS[fault]
+    used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    if fault_class not in used or "FaultyTransport" not in used:
+        raise ValueError(f"the test must inject {fault_class} through a FaultyTransport")
+    code = add_missing_imports(code + "\n", symbols | FAULT_KIT_SYMBOLS)
+    docstring = (ast.get_docstring(tree) or invariant or fault).strip().splitlines()[0]
+    title = docstring.split(":", 1)[-1].strip() if ":" in docstring else docstring
+    name = _slug(tests[0].name.removeprefix("test_").removeprefix("test"))
+    return Scenario(id=f"{fault}_{name}"[:80], title=title, fault=fault, test_code=code)
+
+
 def is_test_bug(message: str) -> bool:
     if any(marker in message for marker in TEST_BUG_ERRORS):
         return True
@@ -180,54 +260,13 @@ def is_test_bug(message: str) -> bool:
     return message.startswith("TypeError") and any(n in message for n in FAULT_KIT_NAMES)
 
 
-TEMPLATE_PROVIDED = ("httpx", "pytest", "faultkit")
+def scenario_is_broken(check) -> bool:
+    """A scenario that errors, times out or fails because of its own bug proves nothing."""
+    from .replay import Outcome
 
-
-def _app_imports(text) -> str:
-    """Keep only imports the template does not already provide."""
-    keep = []
-    for line in normalize_code(text).splitlines():
-        words = line.replace(",", " ").split()
-        if (
-            len(words) > 1
-            and words[0] in ("import", "from")
-            and words[1].split(".")[0] in (TEMPLATE_PROVIDED)
-        ):
-            continue
-        keep.append(line)
-    return "\n".join(keep)
-
-
-def _render(fault: str, fill: dict, symbols: dict[str, str] | None = None) -> Scenario:
-    fault_class, fault_expr = FAULT_EXPRESSIONS[fault]
-    test_name = _slug(str(fill.get("test_name", "")))
-    if not test_name:
-        raise ValueError("test_name is required")
-    code = TEMPLATE.format(
-        title=str(fill.get("title", test_name)).replace('"""', "'''"),
-        fault_class=fault_class,
-        imports=_app_imports(fill.get("imports", "")),
-        test_name=test_name,
-        fault_expr=fault_expr,
-        fake_api_args=str(fill.get("fake_api_args", "")).strip(),
-        arrange=_indent(fill.get("arrange", "")),
-        act=_indent(fill.get("act", "")),
-        assertions=_indent(fill.get("assertions", "")),
+    return check.outcome in (Outcome.ERROR, Outcome.TIMED_OUT) or (
+        check.outcome is Outcome.FAILED and is_test_bug(check.message)
     )
-    ast.parse(code)
-    if symbols:
-        code = add_missing_imports(code, symbols)
-    return Scenario(
-        id=f"{fault}_{test_name}"[:80],
-        title=str(fill.get("title", test_name)),
-        fault=fault,
-        test_code=code,
-    )
-
-
-def _indent(block) -> str:
-    lines = normalize_code(block).splitlines() or ["pass"]
-    return "\n".join(f"    {line}" if line.strip() else "" for line in lines)
 
 
 def _slug(text: str) -> str:

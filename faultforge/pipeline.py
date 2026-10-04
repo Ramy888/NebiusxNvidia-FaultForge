@@ -11,7 +11,7 @@ from .models import Scenario
 from .repair import RepairError, generate_repairs
 from .replay import Branch, CandidateResult, Outcome, ReplayReport, replay, run_baseline
 from .sandbox import Sandbox
-from .scenarios import is_test_bug
+from .scenarios import scenario_is_broken
 from .workspace import prepare_workspace
 
 
@@ -104,10 +104,7 @@ def _drop_broken_scenarios(scenarios: list[Scenario], baseline: Branch, events) 
     kept = []
     for scenario in scenarios:
         check = baseline.scenarios[scenario.id]
-        broken = check.outcome in (Outcome.ERROR, Outcome.TIMED_OUT) or (
-            check.outcome is Outcome.FAILED and is_test_bug(check.message)
-        )
-        if broken:
+        if scenario_is_broken(check):
             events.emit("scenario_discarded", scenario=scenario.id, reason=check.message)
         else:
             kept.append(scenario)

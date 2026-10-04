@@ -22,7 +22,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [x] **Checkpoint B** — offline end-to-end (target Oct 6)
 
 ## Phase 2 — Live platform
-- [x] T8 Token Factory client + spike (live run pending: API key)
+- [x] T8 Token Factory client + spike (verified live 2026-10-04)
 - [x] T9 ContreeSandbox + spike (live run pending: Sandboxes access)
 - [~] T10 Live repair loop — CLI wiring done; 5 live runs + prompt tuning pending credentials
 - [ ] **Checkpoint C** — go / no-go on the track (Oct 7–9): needs credentials

@@ -50,6 +50,7 @@ class RunRequest(BaseModel):
 class Run:
     id: str
     example: str
+    mode: str = "demo"
     events: EventLog = field(default_factory=EventLog)
     state: str = "queued"
     error: str | None = None
@@ -129,7 +130,7 @@ def create_app(
         run_mode = body.mode or mode
         if run_mode not in ("demo", "live") or (run_mode == "live" and mode != "live"):
             raise HTTPException(400, f"this server cannot run mode {run_mode!r}")
-        run = Run(id=uuid.uuid4().hex[:12], example=body.example)
+        run = Run(id=uuid.uuid4().hex[:12], example=body.example, mode=run_mode)
         # Capacity check, rate limit and reservation are one critical section, so concurrent
         # requests cannot over-admit. Capacity comes first: retrying against a busy server never
         # burns the client's quota.
@@ -159,6 +160,7 @@ def create_app(
         return {
             "id": run.id,
             "example": run.example,
+            "mode": run.mode,
             "state": run.state,
             "error": run.error,
             "result": run.result,

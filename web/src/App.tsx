@@ -31,6 +31,7 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
+  const [runMode, setRunMode] = useState<string | null>(null);
   const stop = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -54,6 +55,7 @@ export default function App() {
     try {
       const { id } = await startRun(example, mode);
       setRunId(id);
+      setRunMode(mode ?? info?.mode ?? null);
       stop.current = followRun(
         id,
         (event) => dispatch({ kind: "event", event }),
@@ -129,6 +131,9 @@ export default function App() {
 
       {model.phase !== "idle" && (
         <>
+          {runMode === "demo" && info?.mode === "live" && (
+            <p className="mode">Scripted run: prewritten model answers, no Nemotron calls, no credit used</p>
+          )}
           <PhaseBar phase={model.phase} />
           <Activity model={model} />
           {model.failure && (

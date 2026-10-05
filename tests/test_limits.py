@@ -184,3 +184,11 @@ def test_info_reports_the_remaining_live_budget(monkeypatch):
         info = client.get("/api/info").json()
 
     assert info["live_runs_left_today"] == 2
+
+
+def test_run_status_says_whether_the_run_was_live_or_scripted(monkeypatch):
+    with TestClient(_live_app(monkeypatch, live_runs_per_day=5)) as client:
+        scripted = client.post("/api/runs", json={"example": "order-service", "mode": "demo"})
+        status = client.get(f"/api/runs/{scripted.json()['id']}").json()
+
+    assert status["mode"] == "demo"

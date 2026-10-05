@@ -69,7 +69,12 @@ FAULT_KIT_DOC = """Fault kit API (importable as `faultkit`):
 - Timeout(on_calls={1}, after_processing=True): the request is processed, then httpx.ReadTimeout.
 - RateLimit(on_calls={1}, retry_after=1): HTTP 429 with Retry-After; the request is NOT processed.
 - Malformed(on_calls={1}): the request is processed, the response body is truncated JSON.
-- DuplicateDelivery(on_calls={1}): the request reaches the fake twice."""
+- DuplicateDelivery(on_calls={1}): the request reaches the fake twice.
+If the application creates its own client inside a function (e.g. `httpx.Client(http2=True)`),
+inject the fault with pytest's monkeypatch, keeping the real class for the fake:
+    real_client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: real_client(transport=transport))
+(do not forward the app's own keyword arguments such as http2=True)."""
 
 # A worked example for an application that is NOT the one under test, so it teaches the shape
 # of a good scenario without leaking an answer.

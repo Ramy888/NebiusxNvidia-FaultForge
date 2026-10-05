@@ -49,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         default=os.environ.get("FAULTFORGE_SANDBOX", "local"),
     )
     run.add_argument("--setup", help="one-time command run before the baseline")
+    run.add_argument("--image", help="sandbox base image, e.g. python:3.11-slim (contree only)")
     run.add_argument("--candidates", type=int, default=3)
     run.add_argument("--out", type=Path)
     run.add_argument("--dump", type=Path, help="write result, generated code and events as JSON")
@@ -82,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     events.subscribe(_print_progress)
     found = None
     try:
-        sandbox = _sandbox(sandbox_name)
+        sandbox = _sandbox(sandbox_name, getattr(args, "image", None))
     except SandboxError as error:
         print(f"faultforge: {error}", file=sys.stderr)
         return 2
@@ -154,11 +155,11 @@ def _researcher():
     return TavilyResearcher(key) if key else None
 
 
-def _sandbox(name: str):
+def _sandbox(name: str, image: str | None = None):
     if name == "contree":
         from .sandbox.contree import ContreeSandbox
 
-        return ContreeSandbox()
+        return ContreeSandbox(base_image=image) if image else ContreeSandbox()
     return LocalSandbox()
 
 

@@ -127,3 +127,14 @@ def test_an_upload_that_is_already_finished_is_not_waited_on(client, source):
     snapshot = ContreeSandbox(client=client).create(source)
 
     assert snapshot.id
+
+
+def test_cli_passes_the_requested_base_image_to_the_sandbox(monkeypatch):
+    from faultforge import cli
+    from faultforge.sandbox import contree
+
+    monkeypatch.setattr(contree, "_default_client", lambda: "fake-client")
+
+    sandbox = cli._sandbox("contree", image="python:3.11-slim")
+
+    assert sandbox._base_image == "python:3.11-slim"

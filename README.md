@@ -8,6 +8,14 @@ Point it at a small Python service. It finds the outbound HTTP dependency, resea
 
 Built for the Nebius x NVIDIA Global AI Hackathon — Coding & Agentic Engineering track.
 
+![A live run: every attempt in its own sandbox branch, and the evidence](docs/images/live-attempt-tree.jpg)
+
+<sub>A live run on the webhook service (Nemotron 3 Ultra + Nano on Token Factory, Token Factory Sandboxes, 5 Oct 2026): the rate-limit failure is reproduced, three repairs are tried in parallel branches, and the one that checks the HTTP status is verified.</sub>
+
+| While Nemotron reads the service | The proven patch |
+|---|---|
+| ![Preparation feed](docs/images/live-preparation.jpg) | ![Patch and before/after](docs/images/live-evidence-patch.jpg) |
+
 ## What it finds
 
 | Example | What the code does | What actually happens under the fault |

@@ -59,7 +59,7 @@ flowchart LR
 
 Nemotron models are region-scoped on Token Factory, so FaultForge keeps one OpenAI-compatible client per role (`faultforge/llm/token_factory.py`). Model output is consumed as JSON and validated; malformed output is retried once.
 
-> **Status (2026-10-04):** the full loop runs live on Nemotron 3 Ultra and Nano via Token Factory, with Tavily research — from the CLI and from the web UI. In the latest batch, 6 of 8 live runs produced a genuine, verified repair; see [`docs/live-runs.md`](docs/live-runs.md) for every iteration and what it taught us. Token Factory Sandboxes access is requested; until it is enabled, live runs use the local sandbox inside the Docker container.
+> **Status (2026-10-04):** the full loop runs live on Nemotron 3 Ultra and Nano via Token Factory, with Tavily research — from the CLI and from the web UI. In the latest batch, 6 of 8 live runs produced a genuine, verified repair; see [`docs/live-runs.md`](docs/live-runs.md) for every iteration and what it taught us. Since 2026-10-05 it also runs fully on **Token Factory Sandboxes** (`--sandbox contree`): every scenario and every repair is a branch of one sandbox checkpoint.
 
 ## Quick start (offline, no keys)
 

@@ -21,6 +21,10 @@ least one reproduced failure fixed.
 
 | 10 | fault kit: `FakeAPI.created` (objects with ids) vs `.accepted` (request bodies) | order service **2 / 2** |
 
+**First run fully on Token Factory Sandboxes (2026-10-05):** order service repaired with the
+idempotency key; every scenario, baseline and repair ran as a branch of one sandbox checkpoint.
+2 min 48 s end to end, about $0.08 of Nemotron, Sandboxes free during beta.
+
 Iteration 10's cause: every failed order-service run had the correct idempotency repair, undone by
 a generated test reading `["id"]` from `.accepted` (request bodies). The test bug only appeared
 after the repair, so validation could not see it; fixing the fault kit's API and docs did.

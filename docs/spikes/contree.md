@@ -23,5 +23,5 @@ FAULTFORGE_LIVE_CONTREE=1 uv run --extra contree --env-file .env pytest tests/sa
 
 1. Is `python:3.12-slim` available via `images.use`, or must it be imported first (`images.oci(...)`)?
 2. ~~Does `apply_files` need `.wait()`?~~ No: it returns an already-SUCCEEDED image, and `wait()` on it raises. Only PREPARING/PREPARED images can be waited on.
-3. Is outbound network on by default (needed for `pip install httpx pytest` in the setup step)? If not, build a base image with them preinstalled.
-4. Real per-run latency — decides how many branches the demo can afford to run in parallel (cap: 50 concurrent operations).
+3. ~~Is outbound network on by default?~~ Yes: the one-time `pip install httpx pytest` setup step works inside the sandbox.
+4. Real latency: a full FaultForge run on the order service (setup, validation, baseline, 4 scenarios × 3 repairs) took **2 min 48 s** on Sandboxes, versus about 1 min locally.

@@ -40,9 +40,9 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [x] T17 UI: evidence view
 - [x] T18 Pull request with evidence
 - [x] T19 Public demo limits — debate-review done 2026-10-04 (P0 + P2 fixed)
-- [~] T20 Deploy on Nebius Serverless — Dockerfile built and smoke-tested locally; deploy needs Ramy
+- [~] T20 Deploy — blocked: Nebius AI Cloud needs billing ($25 top-up), Hugging Face Docker Spaces need PRO; fallback: static replay
 - [ ] **Checkpoint E** — demo-ready (Oct 24): offline demo ready; live demo not yet
 
 ## Phase 5 — Submission
 - [x] T21 README (with architecture diagram), feedback draft, video script draft
-- [ ] T22 Video, repo public, Devpost form — submit by Oct 29
+- [~] T22 Video, repo public, Devpost form — Devpost draft in docs/devpost-submission.md; video, public repo and submission left for Ramy (by Oct 29)

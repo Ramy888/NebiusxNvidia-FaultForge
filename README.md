@@ -14,6 +14,7 @@ Built for the Nebius x NVIDIA Global AI Hackathon — Coding & Agentic Engineeri
 |---|---|---|
 | `order-service` | Retries a fulfillment request that timed out | The provider had already accepted the first one: **one order, two shipments** |
 | `webhook-service` | Checks the charge before marking an order paid | A 429 answer has no `status`, which the code defaults to `"succeeded"`: **unpaid order marked paid** |
+| [`hook-slinger`](https://github.com/rednafi/hook-slinger) (third-party, unchanged) | Delivers webhooks with retries | Retries and duplicates carry no idempotency key: **the receiver processes the same webhook twice** |
 
 Both services' own test suites pass. FaultForge's evidence for the first one:
 

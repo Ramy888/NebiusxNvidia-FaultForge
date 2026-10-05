@@ -25,6 +25,13 @@ least one reproduced failure fixed.
 idempotency key; every scenario, baseline and repair ran as a branch of one sandbox checkpoint.
 2 min 48 s end to end, about $0.08 of Nemotron, Sandboxes free during beta.
 
+**Third-party repo, hook-slinger, on Sandboxes (2026-10-05):** repaired in 3 min 18 s (~$0.12).
+The duplicate-delivery scenario reproduced (2 deliveries processed); the first repair failed, Ultra's
+revision passed: a stable `Idempotency-Key` on every delivery, carried through rq retries. Caveat a
+reviewer should raise: the key hashes only the payload, so identical payloads to different
+receivers would share a key. The upstream "non-200 counts as failure" bug was noticed in the test
+but not kept as a scenario in this run.
+
 Iteration 10's cause: every failed order-service run had the correct idempotency repair, undone by
 a generated test reading `["id"]` from `.accepted` (request bodies). The test bug only appeared
 after the repair, so validation could not see it; fixing the fault kit's API and docs did.

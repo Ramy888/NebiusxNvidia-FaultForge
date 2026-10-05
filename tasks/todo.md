@@ -31,7 +31,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [x] T11 Dependency discovery
 - [x] T12 Scenario generation from templates
 - [x] T13 Tavily research (live call verified 2026-10-03: 5 sources incl. Stripe, Shopify docs)
-- [~] T14 Two more repos — webhook-service done; third-party repo still to choose
+- [x] T14 Two more repos — webhook-service + hook-slinger (third-party, live on Sandboxes 2026-10-05)
 - [~] **Checkpoint D** — template-based generation built; stability needs live Nemotron runs (Oct 16)
 
 ## Phase 4 — Product

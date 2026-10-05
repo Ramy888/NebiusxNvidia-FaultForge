@@ -92,7 +92,14 @@ class ContreeSandbox:
 
     @staticmethod
     def _settle(image):
-        """Block until an image operation (such as a file upload) has finished."""
+        """Block until an image operation has finished, unless it already has.
+
+        Verified live: `apply_files()` returns an image that is already SUCCEEDED, and calling
+        `wait()` on it raises; only PREPARING/PREPARED images can be waited on.
+        """
+        state = str(getattr(image, "state", "")).upper()
+        if state and "PREPAR" not in state:
+            return image
         wait = getattr(image, "wait", None)
         return wait() if callable(wait) else image
 

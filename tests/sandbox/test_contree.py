@@ -105,3 +105,25 @@ def test_unknown_snapshot_is_a_sandbox_error(sandbox, source):
 
     with pytest.raises(SandboxError):
         sandbox.run(type(sandbox.create(source))(id="nope"), "true")
+
+
+def test_an_upload_that_is_already_finished_is_not_waited_on(client, source):
+    """The real SDK returns apply_files() results already SUCCEEDED; wait() then raises."""
+
+    class FinishedImage:
+        state = "ImageState.SUCCEEDED"
+
+        def __init__(self, inner):
+            self._inner = inner
+            self.uuid = inner.uuid
+
+        def wait(self):
+            raise RuntimeError("cannot wait on a finished image")
+
+    base = client.images.base
+    original = base.apply_files
+    base.apply_files = lambda files: FinishedImage(original(files))
+
+    snapshot = ContreeSandbox(client=client).create(source)
+
+    assert snapshot.id

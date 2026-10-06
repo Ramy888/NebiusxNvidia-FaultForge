@@ -74,11 +74,18 @@ export default function App() {
   }
 
   return (
+    <>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <p className="wordmark">
+            <span className="wordmark-mark" aria-hidden />
+            FaultForge
+          </p>
+          {info && <p className={`mode mode-${info.mode}`}>{info.description}</p>}
+        </div>
+      </header>
     <div className="page">
-      <header className="masthead">
-        <p className="wordmark">
-          Fault<span>Forge</span>
-        </p>
+      <section className="hero">
         <h1>Find out how your app fails when its dependencies misbehave.</h1>
         <p className="lede">
           FaultForge injects timeouts, rate limits, malformed responses and duplicate deliveries,
@@ -86,8 +93,7 @@ export default function App() {
           on NVIDIA Nemotron and Nebius Token Factory; every attempt runs in its own sandbox
           branch.
         </p>
-        {info && <p className={`mode mode-${info.mode}`}>{info.description}</p>}
-      </header>
+      </section>
 
       <section className="panel picker" aria-labelledby="picker-heading">
         <h2 id="picker-heading">Pick a service</h2>
@@ -158,5 +164,6 @@ export default function App() {
         </>
       )}
     </div>
+    </>
   );
 }

@@ -1,3 +1,5 @@
+<img src="docs/images/logo.svg" alt="FaultForge logo" width="72" />
+
 # FaultForge
 
 **Find out how your application fails when its dependencies misbehave — and get a repair tested against those failures.**

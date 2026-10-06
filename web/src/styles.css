@@ -77,11 +77,7 @@ a:hover { text-decoration: underline; }
   display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
 }
 .wordmark { display: flex; align-items: center; gap: 10px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
-.wordmark-mark {
-  width: 22px; height: 22px; border-radius: 7px;
-  background: linear-gradient(135deg, var(--accent-hover), var(--accent));
-  box-shadow: 0 4px 14px -4px var(--accent-glow);
-}
+.wordmark-mark { width: 26px; height: 26px; display: block; filter: drop-shadow(0 4px 10px var(--accent-glow)); }
 
 .page { max-width: 1180px; margin: 0 auto; padding: 40px 20px 80px; }
 

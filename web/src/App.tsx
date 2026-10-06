@@ -78,7 +78,7 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-inner">
           <p className="wordmark">
-            <span className="wordmark-mark" aria-hidden />
+            <img className="wordmark-mark" src="./favicon.svg" alt="" aria-hidden />
             FaultForge
           </p>
           {info && <p className={`mode mode-${info.mode}`}>{info.description}</p>}

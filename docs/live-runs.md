@@ -32,6 +32,12 @@ reviewer should raise: the key hashes only the payload, so identical payloads to
 receivers would share a key. The upstream "non-200 counts as failure" bug was noticed in the test
 but not kept as a scenario in this run.
 
+**Known weakness (2026-10-06):** in one of two webhook runs on Sandboxes the winning patch, besides
+a real fix, made `OrderBook.status` return "unknown" for missing orders, which papers over a
+generated test that never created its order. Triage does not always catch that. The published
+recording uses the other run, whose patch only touches the payment check. A guard that rejects
+repairs changing code unrelated to the dependency call is a candidate next step.
+
 Iteration 10's cause: every failed order-service run had the correct idempotency repair, undone by
 a generated test reading `["id"]` from `.accepted` (request bodies). The test bug only appeared
 after the repair, so validation could not see it; fixing the fault kit's API and docs did.

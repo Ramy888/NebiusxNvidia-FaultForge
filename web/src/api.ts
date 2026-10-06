@@ -1,4 +1,8 @@
+import { loadIndex, loadRecording, replayEvents, replayExamples, replayStatus } from "./replay";
 import type { Example, RunStatus, ServerEvent } from "./types";
+
+/** Built with VITE_REPLAY=1: no backend, the UI replays recorded live runs. */
+export const REPLAY = import.meta.env.VITE_REPLAY === "1";
 
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -14,8 +18,10 @@ async function json<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export const fetchInfo = () =>
-  fetch("/api/info").then((r) => json<ServerInfo>(r));
+export const fetchInfo = (): Promise<ServerInfo> =>
+  REPLAY
+    ? loadIndex().then((i) => ({ mode: "replay", description: i.description }))
+    : fetch("/api/info").then((r) => json<ServerInfo>(r));
 
 export interface ServerInfo {
   mode: string;
@@ -23,16 +29,18 @@ export interface ServerInfo {
   live_runs_left_today?: number;
 }
 
-export const fetchExamples = () => fetch("/api/examples").then((r) => json<Example[]>(r));
+export const fetchExamples = (): Promise<Example[]> =>
+  REPLAY ? replayExamples() : fetch("/api/examples").then((r) => json<Example[]>(r));
 
-export const startRun = (example: string, mode?: "demo" | "live") =>
-  fetch("/api/runs", {
+export const startRun = (example: string, mode?: "demo" | "live"): Promise<{ id: string }> =>
+  REPLAY ? Promise.resolve({ id: example }) : fetch("/api/runs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(mode ? { example, mode } : { example }),
   }).then((r) => json<{ id: string }>(r));
 
-export const fetchRun = (id: string) => fetch(`/api/runs/${id}`).then((r) => json<RunStatus>(r));
+export const fetchRun = (id: string): Promise<RunStatus> =>
+  REPLAY ? replayStatus(id) : fetch(`/api/runs/${id}`).then((r) => json<RunStatus>(r));
 
 /** Follows a run's event stream; returns a function that stops listening. */
 export function followRun(
@@ -40,6 +48,20 @@ export function followRun(
   onEvent: (event: ServerEvent) => void,
   onEnd: () => void,
 ): () => void {
+  if (REPLAY) {
+    let stop = () => {};
+    let cancelled = false;
+    loadRecording(id).then(
+      (recording) => {
+        if (!cancelled) stop = replayEvents(recording.events, onEvent, onEnd);
+      },
+      () => onEnd(),
+    );
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }
   const source = new EventSource(`/api/runs/${id}/events`);
   source.onmessage = (message) => onEvent(JSON.parse(message.data) as ServerEvent);
   source.addEventListener("end", () => {

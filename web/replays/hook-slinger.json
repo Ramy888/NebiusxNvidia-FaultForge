@@ -1,0 +1,732 @@
+{
+ "id": "hook-slinger",
+ "description": "Third-party, unchanged: rednafi/hook-slinger, a webhook delivery service with retries.",
+ "recorded": "2026-10-05",
+ "result": {
+  "repo": "hook-slinger",
+  "status": "repaired",
+  "target": "duplicate_delivery_duplicate_delivery_is_idempotent",
+  "winner": "add_idempotency_key_header_revised",
+  "existing_tests": {
+   "outcome": "passed",
+   "message": "",
+   "duration_s": 2.721,
+   "output": "..........                                                               [100%]\n=============================== warnings summary ===============================\ntests/test_services.py:81\n  /workspace/tests/test_services.py:81: PytestUnknownMarkWarning: Unknown pytest.mark.dummy - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html\n    @pytest.mark.dummy()\n\ntests/test_services.py:90\n  /workspace/tests/test_services.py:90: PytestUnknownMarkWarning: Unknown pytest.mark.dummy - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html\n    @pytest.mark.dummy()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n10 passed, 2 warnings in 0.40s\n"
+  },
+  "scenarios": [
+   {
+    "id": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "title": "duplicate_delivery",
+    "fault": "duplicate_delivery",
+    "test_path": "tests/test_ff_duplicate_delivery_duplicate_delivery_is_idempotent.py",
+    "test_code": "\"\"\"FaultForge scenario: duplicate_delivery\"\"\"\n\nimport httpx\nimport pytest\nfrom faultkit import FaultyTransport, DuplicateDelivery, FakeAPI\n\nfrom app.services import send_post_request, WebhookPostFailedError\nfrom app.views import SlingerRequestPayload\n\n\ndef test_duplicate_delivery_is_idempotent(monkeypatch):\n    \"\"\"\n    Invariant: Retries due to transient failures do not cause the external endpoint\n    to process the same webhook payload more than once. The application must make the\n    call idempotent (e.g., via an Idempotency-Key header) so that a duplicate delivery\n    results in exactly one side effect at the dependency.\n    \"\"\"\n    # ------------------------------------------------------------------\n    # Arrange \u2013 create a fake webhook endpoint and inject the duplicate\u2011delivery fault\n    # ------------------------------------------------------------------\n    fake_webhook = FakeAPI(status=201, id_prefix=\"res\")\n    transport = FaultyTransport(fake_webhook, DuplicateDelivery(on_calls={1}))\n\n    # Patch httpx.Client so that any client created inside send_post_request uses our transport\n    real_client_class = httpx.Client\n    monkeypatch.setattr(\n        httpx,\n        \"Client\",\n        lambda *args, **kwargs: real_client_class(transport=transport),\n    )\n\n    # ------------------------------------------------------------------\n    # Act \u2013 call the function that sends the webhook once\n    # ------------------------------------------------------------------\n    payload = SlingerRequestPayload(\n        to_url=\"https://example.com/webhook\",\n        to_auth=None,\n        tag=\"test\",\n        group=\"test-group\",\n        payload={\"foo\": \"bar\"},\n    )\n\n    try:\n        send_post_request(payload)\n    except WebhookPostFailedError:\n        # The fake returns 201, which the service treats as a failure (non\u2011200).\n        # We only care about the side\u2011effect count on the fake.\n        pass\n\n    # ------------------------------------------------------------------\n    # Assert \u2013 exactly one delivery was processed by the fake endpoint\n    # ------------------------------------------------------------------\n    assert len(fake_webhook.accepted) == 1, (\n        f\"Expected exactly one HTTP request to be processed by the external endpoint, \"\n        f\"but observed {len(fake_webhook.accepted)} deliveries. \"\n        f\"The application must make the call idempotent (e.g., via an Idempotency-Key header).\"\n    )\n\n    # Optionally verify that a resource was created exactly once\n    assert len(fake_webhook.created) == 1, (\n        f\"Expected exactly one resource to be created at the external endpoint, \"\n        f\"but observed {len(fake_webhook.created)} creations.\"\n    )\n",
+    "baseline": {
+     "outcome": "failed",
+     "message": "AssertionError: Expected exactly one HTTP request to be processed by the external endpoint, but observed 2 deliveries. The application must make the call idempotent (e.g., via an Idempotency-Key header).",
+     "duration_s": 2.909,
+     "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n____________________ test_duplicate_delivery_is_idempotent _____________________\ntests/test_ff_duplicate_delivery_duplicate_delivery_is_idempotent.py:53: in test_duplicate_delivery_is_idempotent\n    assert len(fake_webhook.accepted) == 1, (\nE   AssertionError: Expected exactly one HTTP request to be processed by the external endpoint, but observed 2 deliveries. The application must make the call idempotent (e.g., via an Idempotency-Key header).\nE   assert 2 == 1\nE    +  where 2 = len([{'foo': 'bar'}, {'foo': 'bar'}])\nE    +    where [{'foo': 'bar'}, {'foo': 'bar'}] = <faultkit.api.FakeAPI object at 0x7ffff49f5d10>.accepted\n----------------------------- Captured stdout call -----------------------------\n\u001b[34mINFO    \u001b[0m HTTP Request: \u001b[1;33mPOST\u001b[0m \u001b[4;94mhttps://example.com/webhook\u001b[0m \u001b[32m\"HTTP/1.1 201 \u001b[0m     \u001b]8;id=463678;file:///usr/local/lib/python3.11/site-packages/httpx/_client.py\u001b\\\u001b[2m_client.py\u001b[0m\u001b]8;;\u001b\\\u001b[2m:\u001b[0m\u001b]8;id=341821;file:///usr/local/lib/python3.11/site-packages/httpx/_client.py#1025\u001b\\\u001b[2m1025\u001b[0m\u001b]8;;\u001b\\\n         \u001b[32mCreated\"\u001b[0m                                                          \u001b[2m               \u001b[0m\n------------------------------ Captured log call -------------------------------\nINFO     httpx:_client.py:1025 HTTP Request: POST https://example.com/webhook \"HTTP/1.1 201 Created\"\n=========================== short test summary info ============================\nFAILED tests/test_ff_duplicate_delivery_duplicate_delivery_is_idempotent.py::test_duplicate_delivery_is_idempotent\n1 failed in 0.34s\n"
+    }
+   }
+  ],
+  "candidates": [
+   {
+    "id": "add_idempotency_key_header_revised",
+    "summary": "Add an Idempotency-Key header to webhook POST requests using the job ID (or a payload hash) so duplicate deliveries are deduplicated by the external endpoint.",
+    "accepted": true,
+    "rejection_reason": "",
+    "diff": "--- a/app/services.py\n+++ b/app/services.py\n@@ -1,5 +1,7 @@\n from __future__ import annotations\n \n+import hashlib\n+import json\n import re\n import typing\n import uuid\n@@ -43,21 +45,46 @@\n     return url\n \n \n-def send_post_request(webhook_payload: SlingerRequestPayload) -> None:\n+def _generate_idempotency_key(payload: dict) -> str:\n+    \"\"\"\n+    Create a deterministic idempotency key from the payload.\n+    The key is a SHA\u2011256 hex digest of the sorted JSON representation of the payload.\n+    Using a hash ensures the key is stable across retries and does not depend on\n+    the order of fields.\n+    \"\"\"\n+    # Sort items to make the hash deterministic regardless of dict ordering\n+    sorted_items = sorted(payload.items())\n+    json_str = json.dumps(sorted_items, separators=(\",\", \":\"))\n+    return hashlib.sha256(json_str.encode(\"utf-8\")).hexdigest()\n+\n+\n+def send_post_request(\n+    webhook_payload: SlingerRequestPayload,\n+    *,\n+    idempotency_key: str | None = None,\n+) -> None:\n+    \"\"\"\n+    Send a POST request to ``webhook_payload.to_url`` with the given payload.\n+    If ``idempotency_key`` is supplied, it is added to the request headers as\n+    ``Idempotency-Key``.  If not supplied, a deterministic key is generated from\n+    the payload so that duplicate deliveries (retries or transport-level duplicates)\n+    carry the same key and can be deduplicated by the remote endpoint.\n+    \"\"\"\n     to_url = webhook_payload.to_url\n     to_auth = webhook_payload.to_auth\n     payload = webhook_payload.payload\n \n+    # Generate a stable idempotency key from the payload if the caller didn't provide one.\n+    if idempotency_key is None:\n+        idempotency_key = _generate_idempotency_key(payload)\n+\n+    headers = {\n+        \"Content-Type\": \"application/json\",\n+        \"Idempotency-Key\": idempotency_key,\n+    }\n+\n     if to_auth:\n-        headers = {\n-            \"Content-Type\": \"application/json\",\n-            \"Authorization\": to_auth,\n-        }\n-\n-    else:\n-        headers = {\n-            \"Content-Type\": \"application/json\",\n-        }\n+        headers[\"Authorization\"] = to_auth\n \n     with httpx.Client(http2=True) as session:\n         response = session.post(\n@@ -79,10 +106,22 @@\n queue = Queue(config.QUEUE_NAME, connection=redis_conn)\n \n \n-def send_webhook(*, webhook_payload: SlingerRequestPayload) -> Job:\n-    return queue.enqueue(\n+def send_webhook(\n+    *,\n+    webhook_payload: SlingerRequestPayload,\n+) -> \"Job\":\n+    \"\"\"\n+    Enqueue ``send_post_request`` on the Redis queue.\n+    A deterministic idempotency key is generated from the payload and passed to\n+    ``send_post_request`` so that all retry attempts carry the same key.\n+    \"\"\"\n+    idempotency_key = _generate_idempotency_key(webhook_payload.payload)\n+\n+    job = queue.enqueue(\n         send_post_request,\n         webhook_payload,\n         retry=Retry(max=config.MAX_RETRIES, interval=config.INTERVAL),\n         job_id=f\"{webhook_payload.group}_{webhook_payload.tag}_{str(uuid.uuid4())}\",\n+        kwargs={\"idempotency_key\": idempotency_key},\n     )\n+    return job\n",
+    "diff_lines": 63,
+    "fixed": [
+     "duplicate_delivery_duplicate_delivery_is_idempotent"
+    ],
+    "regressed": [],
+    "existing_tests": {
+     "outcome": "passed",
+     "message": "",
+     "duration_s": 2.723,
+     "output": "..........                                                               [100%]\n=============================== warnings summary ===============================\ntests/test_services.py:81\n  /workspace/tests/test_services.py:81: PytestUnknownMarkWarning: Unknown pytest.mark.dummy - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html\n    @pytest.mark.dummy()\n\ntests/test_services.py:90\n  /workspace/tests/test_services.py:90: PytestUnknownMarkWarning: Unknown pytest.mark.dummy - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html\n    @pytest.mark.dummy()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n10 passed, 2 warnings in 0.41s\n"
+    },
+    "scenarios": {
+     "duplicate_delivery_duplicate_delivery_is_idempotent": {
+      "outcome": "passed",
+      "message": "",
+      "duration_s": 3.041,
+      "output": ".                                                                        [100%]\n1 passed in 0.33s\n"
+     }
+    }
+   },
+   {
+    "id": "add_idempotency_key_header",
+    "summary": "Add an Idempotency-Key header to webhook POST requests using the job ID (or a payload hash) so duplicate deliveries are deduplicated by the external endpoint.",
+    "accepted": false,
+    "rejection_reason": "fixes no failing scenario",
+    "diff": "--- a/app/services.py\n+++ b/app/services.py\n@@ -43,21 +43,48 @@\n     return url\n \n \n-def send_post_request(webhook_payload: SlingerRequestPayload) -> None:\n+def _generate_idempotency_key(payload: dict) -> str:\n+    \"\"\"\n+    Create a deterministic idempotency key from the payload.\n+    The key is a SHA\u2011256 hex digest of the sorted JSON representation of the payload.\n+    Using a hash ensures the key is stable across retries and does not depend on\n+    the order of fields.\n+    \"\"\"\n+    import hashlib\n+    import json\n+\n+    # Sort items to make the hash deterministic regardless of dict ordering\n+    sorted_items = sorted(payload.items())\n+    json_str = json.dumps(sorted_items, separators=(\",\", \":\"))\n+    return hashlib.sha256(json_str.encode(\"utf-8\")).hexdigest()\n+\n+\n+def send_post_request(\n+    webhook_payload: SlingerRequestPayload,\n+    *,\n+    idempotency_key: str | None = None,\n+) -> None:\n+    \"\"\"\n+    Send a POST request to ``webhook_payload.to_url`` with the given payload.\n+    If ``idempotency_key`` is supplied, it is added to the request headers as\n+    ``Idempotency-Key``.  The caller (typically ``send_webhook``) should pass the\n+    job ID or a payload\u2011derived key so that the remote endpoint can deduplicate\n+    duplicate deliveries.\n+    \"\"\"\n     to_url = webhook_payload.to_url\n     to_auth = webhook_payload.to_auth\n     payload = webhook_payload.payload\n \n+    headers = {\n+        \"Content-Type\": \"application/json\",\n+    }\n+\n     if to_auth:\n-        headers = {\n-            \"Content-Type\": \"application/json\",\n-            \"Authorization\": to_auth,\n-        }\n+        headers[\"Authorization\"] = to_auth\n \n-    else:\n-        headers = {\n-            \"Content-Type\": \"application/json\",\n-        }\n+    # Append idempotency key if we have one\n+    if idempotency_key:\n+        headers[\"Idempotency-Key\"] = idempotency_key\n \n     with httpx.Client(http2=True) as session:\n         response = session.post(\n@@ -79,10 +106,28 @@\n queue = Queue(config.QUEUE_NAME, connection=redis_conn)\n \n \n-def send_webhook(*, webhook_payload: SlingerRequestPayload) -> Job:\n-    return queue.enqueue(\n+def send_webhook(\n+    *,\n+    webhook_payload: SlingerRequestPayload,\n+    idempotency_key: str | None = None,\n+) -> \"Job\":\n+    \"\"\"\n+    Enqueue ``send_post_request`` on the Redis queue.\n+    If ``idempotency_key`` is not supplied, we derive one from the payload\n+    (deterministic hash) so that duplicate deliveries are still deduplicated.\n+    The generated key is passed to ``send_post_request`` via the ``idempotency_key``\n+    argument.\n+    \"\"\"\n+    # Use the job_id from the enqueue call as a stable identifier.\n+    # If the caller already provided an idempotency_key, prefer that.\n+    if not idempotency_key:\n+        idempotency_key = _generate_idempotency_key(webhook_payload.payload)\n+\n+    job = queue.enqueue(\n         send_post_request,\n         webhook_payload,\n         retry=Retry(max=config.MAX_RETRIES, interval=config.INTERVAL),\n         job_id=f\"{webhook_payload.group}_{webhook_payload.tag}_{str(uuid.uuid4())}\",\n+        kwargs={\"idempotency_key\": idempotency_key},\n     )\n+    return job\n",
+    "diff_lines": 67,
+    "fixed": [],
+    "regressed": [],
+    "existing_tests": {
+     "outcome": "passed",
+     "message": "",
+     "duration_s": 2.757,
+     "output": "..........                                                               [100%]\n=============================== warnings summary ===============================\ntests/test_services.py:81\n  /workspace/tests/test_services.py:81: PytestUnknownMarkWarning: Unknown pytest.mark.dummy - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html\n    @pytest.mark.dummy()\n\ntests/test_services.py:90\n  /workspace/tests/test_services.py:90: PytestUnknownMarkWarning: Unknown pytest.mark.dummy - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html\n    @pytest.mark.dummy()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n10 passed, 2 warnings in 0.43s\n"
+    },
+    "scenarios": {
+     "duplicate_delivery_duplicate_delivery_is_idempotent": {
+      "outcome": "failed",
+      "message": "AssertionError: Expected exactly one HTTP request to be processed by the external endpoint, but observed 2 deliveries. The application must make the call idempotent (e.g., via an Idempotency-Key header).",
+      "duration_s": 2.873,
+      "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n____________________ test_duplicate_delivery_is_idempotent _____________________\ntests/test_ff_duplicate_delivery_duplicate_delivery_is_idempotent.py:53: in test_duplicate_delivery_is_idempotent\n    assert len(fake_webhook.accepted) == 1, (\nE   AssertionError: Expected exactly one HTTP request to be processed by the external endpoint, but observed 2 deliveries. The application must make the call idempotent (e.g., via an Idempotency-Key header).\nE   assert 2 == 1\nE    +  where 2 = len([{'foo': 'bar'}, {'foo': 'bar'}])\nE    +    where [{'foo': 'bar'}, {'foo': 'bar'}] = <faultkit.api.FakeAPI object at 0x7ffff51ae210>.accepted\n----------------------------- Captured stdout call -----------------------------\n\u001b[34mINFO    \u001b[0m HTTP Request: \u001b[1;33mPOST\u001b[0m \u001b[4;94mhttps://example.com/webhook\u001b[0m \u001b[32m\"HTTP/1.1 201 \u001b[0m     \u001b]8;id=686829;file:///usr/local/lib/python3.11/site-packages/httpx/_client.py\u001b\\\u001b[2m_client.py\u001b[0m\u001b]8;;\u001b\\\u001b[2m:\u001b[0m\u001b]8;id=755948;file:///usr/local/lib/python3.11/site-packages/httpx/_client.py#1025\u001b\\\u001b[2m1025\u001b[0m\u001b]8;;\u001b\\\n         \u001b[32mCreated\"\u001b[0m                                                          \u001b[2m               \u001b[0m\n------------------------------ Captured log call -------------------------------\nINFO     httpx:_client.py:1025 HTTP Request: POST https://example.com/webhook \"HTTP/1.1 201 Created\"\n=========================== short test summary info ============================\nFAILED tests/test_ff_duplicate_delivery_duplicate_delivery_is_idempotent.py::test_duplicate_delivery_is_idempotent\n1 failed in 0.34s\n"
+     }
+    }
+   }
+  ],
+  "dependency": {
+   "name": "External webhook endpoint (to_url)",
+   "operation": "app.views:hook_slinger_view",
+   "call_sites": [
+    "app/services.py:send_post_request"
+   ]
+  },
+  "research": [
+   {
+    "title": "Handling Retries | Sent API Docs",
+    "url": "https://docs.sent.dm/start/webhooks/handling-retries"
+   },
+   {
+    "title": "Idempotency Keys: Safe API Retries & Webhooks | Webalert",
+    "url": "https://web-alert.io/blog/idempotency-keys-safe-retries-apis-webhooks"
+   },
+   {
+    "title": "Idempotent requests | Stripe API Reference",
+    "url": "https://docs.stripe.com/api/idempotent_requests"
+   },
+   {
+    "title": "Webhook Idempotency Keys: How to Stop Duplicate Runs",
+    "url": "https://www.activepieces.com/blog/webhook-idempotency-keys-how-to-stop-duplicate-runs"
+   },
+   {
+    "title": "Handle duplicate webhook deliveries | Docs",
+    "url": "https://developer.nylas.com/docs/cookbook/use-cases/build/handle-duplicate-webhooks"
+   }
+  ],
+  "markdown": "# FaultForge report: hook-slinger\n\n**A repair fixed the reproduced failure without breaking existing tests.**\n\n## Dependency\n\n**External webhook endpoint (to_url)** \u2014 called from `app/services.py:send_post_request`; operation at risk: `app.views:hook_slinger_view`.\n\nResearch (Tavily) on how the real service fails:\n\n- [Handling Retries | Sent API Docs](https://docs.sent.dm/start/webhooks/handling-retries)\n- [Idempotency Keys: Safe API Retries & Webhooks | Webalert](https://web-alert.io/blog/idempotency-keys-safe-retries-apis-webhooks)\n- [Idempotent requests | Stripe API Reference](https://docs.stripe.com/api/idempotent_requests)\n- [Webhook Idempotency Keys: How to Stop Duplicate Runs](https://www.activepieces.com/blog/webhook-idempotency-keys-how-to-stop-duplicate-runs)\n- [Handle duplicate webhook deliveries | Docs](https://developer.nylas.com/docs/cookbook/use-cases/build/handle-duplicate-webhooks)\n\n## Injected failures\n\n| Scenario | Fault | Baseline | What happened |\n|---|---|---|---|\n| duplicate_delivery | `duplicate_delivery` | failed | AssertionError: Expected exactly one HTTP request to be processed by the external endpoint, but observed 2 deliveries. The application must make the call idempotent (e.g., via an Idempotency-Key header). |\n\nExisting tests at baseline: **passed**\n\n## Candidate repairs\n\n| Rank | Candidate | Existing tests | duplicate_delivery_duplicate_delivery_is_idempotent | Lines changed | Verdict |\n|---|---|---|---|---|---|\n| 1 | `add_idempotency_key_header_revised` \u2014 Add an Idempotency-Key header to webhook POST requests using the job ID (or a payload hash) so duplicate deliveries are deduplicated by the external endpoint. | passed | failed \u2192 passed | 63 | accepted |\n| 2 | `add_idempotency_key_header` \u2014 Add an Idempotency-Key header to webhook POST requests using the job ID (or a payload hash) so duplicate deliveries are deduplicated by the external endpoint. | passed | failed \u2192 failed | 67 | rejected: fixes no failing scenario |\n\n## Proposed patch: `add_idempotency_key_header_revised`\n\n```diff\n--- a/app/services.py\n+++ b/app/services.py\n@@ -1,5 +1,7 @@\n from __future__ import annotations\n \n+import hashlib\n+import json\n import re\n import typing\n import uuid\n@@ -43,21 +45,46 @@\n     return url\n \n \n-def send_post_request(webhook_payload: SlingerRequestPayload) -> None:\n+def _generate_idempotency_key(payload: dict) -> str:\n+    \"\"\"\n+    Create a deterministic idempotency key from the payload.\n+    The key is a SHA\u2011256 hex digest of the sorted JSON representation of the payload.\n+    Using a hash ensures the key is stable across retries and does not depend on\n+    the order of fields.\n+    \"\"\"\n+    # Sort items to make the hash deterministic regardless of dict ordering\n+    sorted_items = sorted(payload.items())\n+    json_str = json.dumps(sorted_items, separators=(\",\", \":\"))\n+    return hashlib.sha256(json_str.encode(\"utf-8\")).hexdigest()\n+\n+\n+def send_post_request(\n+    webhook_payload: SlingerRequestPayload,\n+    *,\n+    idempotency_key: str | None = None,\n+) -> None:\n+    \"\"\"\n+    Send a POST request to ``webhook_payload.to_url`` with the given payload.\n+    If ``idempotency_key`` is supplied, it is added to the request headers as\n+    ``Idempotency-Key``.  If not supplied, a deterministic key is generated from\n+    the payload so that duplicate deliveries (retries or transport-level duplicates)\n+    carry the same key and can be deduplicated by the remote endpoint.\n+    \"\"\"\n     to_url = webhook_payload.to_url\n     to_auth = webhook_payload.to_auth\n     payload = webhook_payload.payload\n \n+    # Generate a stable idempotency key from the payload if the caller didn't provide one.\n+    if idempotency_key is None:\n+        idempotency_key = _generate_idempotency_key(payload)\n+\n+    headers = {\n+        \"Content-Type\": \"application/json\",\n+        \"Idempotency-Key\": idempotency_key,\n+    }\n+\n     if to_auth:\n-        headers = {\n-            \"Content-Type\": \"application/json\",\n-            \"Authorization\": to_auth,\n-        }\n-\n-    else:\n-        headers = {\n-            \"Content-Type\": \"application/json\",\n-        }\n+        headers[\"Authorization\"] = to_auth\n \n     with httpx.Client(http2=True) as session:\n         response = session.post(\n@@ -79,10 +106,22 @@\n queue = Queue(config.QUEUE_NAME, connection=redis_conn)\n \n \n-def send_webhook(*, webhook_payload: SlingerRequestPayload) -> Job:\n-    return queue.enqueue(\n+def send_webhook(\n+    *,\n+    webhook_payload: SlingerRequestPayload,\n+) -> \"Job\":\n+    \"\"\"\n+    Enqueue ``send_post_request`` on the Redis queue.\n+    A deterministic idempotency key is generated from the payload and passed to\n+    ``send_post_request`` so that all retry attempts carry the same key.\n+    \"\"\"\n+    idempotency_key = _generate_idempotency_key(webhook_payload.payload)\n+\n+    job = queue.enqueue(\n         send_post_request,\n         webhook_payload,\n         retry=Retry(max=config.MAX_RETRIES, interval=config.INTERVAL),\n         job_id=f\"{webhook_payload.group}_{webhook_payload.tag}_{str(uuid.uuid4())}\",\n+        kwargs={\"idempotency_key\": idempotency_key},\n     )\n+    return job\n```\n\n## Regression test: `tests/test_ff_duplicate_delivery_duplicate_delivery_is_idempotent.py`\n\n```python\n\"\"\"FaultForge scenario: duplicate_delivery\"\"\"\n\nimport httpx\nimport pytest\nfrom faultkit import FaultyTransport, DuplicateDelivery, FakeAPI\n\nfrom app.services import send_post_request, WebhookPostFailedError\nfrom app.views import SlingerRequestPayload\n\n\ndef test_duplicate_delivery_is_idempotent(monkeypatch):\n    \"\"\"\n    Invariant: Retries due to transient failures do not cause the external endpoint\n    to process the same webhook payload more than once. The application must make the\n    call idempotent (e.g., via an Idempotency-Key header) so that a duplicate delivery\n    results in exactly one side effect at the dependency.\n    \"\"\"\n    # ------------------------------------------------------------------\n    # Arrange \u2013 create a fake webhook endpoint and inject the duplicate\u2011delivery fault\n    # ------------------------------------------------------------------\n    fake_webhook = FakeAPI(status=201, id_prefix=\"res\")\n    transport = FaultyTransport(fake_webhook, DuplicateDelivery(on_calls={1}))\n\n    # Patch httpx.Client so that any client created inside send_post_request uses our transport\n    real_client_class = httpx.Client\n    monkeypatch.setattr(\n        httpx,\n        \"Client\",\n        lambda *args, **kwargs: real_client_class(transport=transport),\n    )\n\n    # ------------------------------------------------------------------\n    # Act \u2013 call the function that sends the webhook once\n    # ------------------------------------------------------------------\n    payload = SlingerRequestPayload(\n        to_url=\"https://example.com/webhook\",\n        to_auth=None,\n        tag=\"test\",\n        group=\"test-group\",\n        payload={\"foo\": \"bar\"},\n    )\n\n    try:\n        send_post_request(payload)\n    except WebhookPostFailedError:\n        # The fake returns 201, which the service treats as a failure (non\u2011200).\n        # We only care about the side\u2011effect count on the fake.\n        pass\n\n    # ------------------------------------------------------------------\n    # Assert \u2013 exactly one delivery was processed by the fake endpoint\n    # ------------------------------------------------------------------\n    assert len(fake_webhook.accepted) == 1, (\n        f\"Expected exactly one HTTP request to be processed by the external endpoint, \"\n        f\"but observed {len(fake_webhook.accepted)} deliveries. \"\n        f\"The application must make the call idempotent (e.g., via an Idempotency-Key header).\"\n    )\n\n    # Optionally verify that a resource was created exactly once\n    assert len(fake_webhook.created) == 1, (\n        f\"Expected exactly one resource to be created at the external endpoint, \"\n        f\"but observed {len(fake_webhook.created)} creations.\"\n    )\n```\n"
+ },
+ "events": [
+  {
+   "type": "call_sites_found",
+   "data": {
+    "sites": [
+     "app/services.py:send_post_request"
+    ]
+   }
+  },
+  {
+   "type": "dependencies_found",
+   "data": {
+    "dependencies": [
+     "External webhook endpoint (to_url)"
+    ]
+   }
+  },
+  {
+   "type": "research_started",
+   "data": {
+    "query": "External webhook endpoint (to_url) API timeouts rate limits Retry-After retries idempotency keys duplicate requests documentation"
+   }
+  },
+  {
+   "type": "research_finished",
+   "data": {
+    "sources": [
+     {
+      "title": "Handling Retries | Sent API Docs",
+      "url": "https://docs.sent.dm/start/webhooks/handling-retries"
+     },
+     {
+      "title": "Idempotency Keys: Safe API Retries & Webhooks | Webalert",
+      "url": "https://web-alert.io/blog/idempotency-keys-safe-retries-apis-webhooks"
+     },
+     {
+      "title": "Idempotent requests | Stripe API Reference",
+      "url": "https://docs.stripe.com/api/idempotent_requests"
+     },
+     {
+      "title": "Webhook Idempotency Keys: How to Stop Duplicate Runs",
+      "url": "https://www.activepieces.com/blog/webhook-idempotency-keys-how-to-stop-duplicate-runs"
+     },
+     {
+      "title": "Handle duplicate webhook deliveries | Docs",
+      "url": "https://developer.nylas.com/docs/cookbook/use-cases/build/handle-duplicate-webhooks"
+     }
+    ]
+   }
+  },
+  {
+   "type": "scenarios_planned",
+   "data": {
+    "scenarios": [
+     {
+      "fault": "timeout",
+      "invariant": "The webhook delivery is not recorded as successful until the external endpoint returns 2xx; after exhausting retries the job remains in a failed state and no partial delivery is marked complete."
+     },
+     {
+      "fault": "rate_limit",
+      "invariant": "A 429 response from the external endpoint triggers retry and is never recorded as successful delivery; the job either eventually succeeds with 2xx or fails permanently after max retries."
+     },
+     {
+      "fault": "malformed",
+      "invariant": "Malformed or unparsable HTTP responses from the external endpoint do not cause the application to record a successful delivery; the job is retried or fails permanently without marking the webhook as sent."
+     },
+     {
+      "fault": "duplicate_delivery",
+      "invariant": "Retries due to transient failures do not cause the external endpoint to process the same webhook payload more than once; the application ensures this by passing an idempotency key derived from the webhook's identity (group, tag, payload hash) so the destination can deduplicate, and the application records exactly one successful delivery per logical webhook event."
+     }
+    ]
+   }
+  },
+  {
+   "type": "scenario_written",
+   "data": {
+    "scenario": "timeout_webhook_delivery_is_not_marked_successful_until_2xx_and_job_fails_after_",
+    "fault": "timeout",
+    "title": "webhook delivery is not recorded as successful until the external endpoint returns 2xx; after exhausting retries the job remains failed and no partial delivery is marked complete",
+    "test_code": "\"\"\"FaultForge scenario: webhook delivery is not recorded as successful until the external endpoint returns 2xx; after exhausting retries the job remains failed and no partial delivery is marked complete\"\"\"\n\nimport pytest\nfrom faultkit import FaultyTransport, Timeout\nimport httpx\n\nfrom app.main import app\nfrom app.services import send_webhook\nfrom app.views import SlingerRequestPayload\nfrom app.config import MAX_RETRIES, INTERVAL, QUEUE_NAME, REDIS_URL\nfrom redis import Redis\nfrom rq import Queue, Retry\nfrom faultkit import FakeAPI\n\n# ----------------------------------------------------------------------\n# Helper to build a client that times out on the first call only\n# ----------------------------------------------------------------------\ndef make_timeout_client(fake_api):\n    \"\"\"\n    Returns an httpx.Client that uses a FaultyTransport which raises\n    ReadTimeout after the first request has been processed.\n    \"\"\"\n    # The transport will see the first call as processed, then raise.\n    transport = FaultyTransport(fake_api, Timeout(on_calls={1}, after_processing=True))\n    return httpx.Client(transport=transport)\n\n\n# ----------------------------------------------------------------------\n# Fixture: a fresh in\u2011process fake API for each test\n# ----------------------------------------------------------------------\n@pytest.fixture\ndef fake_api(monkeypatch):\n    \"\"\"\n    Creates a FakeAPI instance that mimics the external webhook endpoint.\n    It records every request body in ``.accepted`` and creates an object\n    with a unique id in ``.created`` for each distinct idempotency key.\n    \"\"\"\n    api = FakeAPI(status=201)          # default status for successful responses\n    # expose the lists so the test can inspect them\n    monkeypatch.setattr(api, \"accepted\", [])\n    monkeypatch.setattr(api, \"created\", [])\n    return api\n\n\n# ----------------------------------------------------------------------\n# Fixture: patch the redis connection used by the queue\n# ----------------------------------------------------------------------\n@pytest.fixture(autouse=True)\ndef clear_redis(monkeypatch):\n    \"\"\"\n    Ensures a clean Redis store for every test so that no stale job ids\n    interfere with idempotency checks.\n    \"\"\"\n    # Use an in\u2011memory Redis for isolation\n    import redis\n    fake_redis = redis.Redis()\n    monkeypatch.setattr(\"app.services.redis_conn\", fake_redis)\n    # Re\u2011create the queue object that the production code expects\n    queue = Queue(QUEUE_NAME, connection=fake_redis)\n    monkeypatch.setattr(\"app.services.queue\", queue)\n    yield\n    # No explicit teardown needed; the fixture's scope ends here.\n\n\n# ----------------------------------------------------------------------\n# The actual test\n# ----------------------------------------------------------------------\ndef test_webhook_delivery_is_not_marked_successful_until_2xx_and_job_fails_after_retries(fake_api):\n    \"\"\"\n    The application must send exactly one request to the external endpoint.\n    The request should be retried up to ``MAX_RETRIES`` times, and after the\n    final attempt the job must stay in a failed state \u2013 no partial delivery\n    may be recorded as successful.\n    \"\"\"\n\n    # ------------------------------------------------------------------\n    # Build a payload that will be sent to the fake endpoint\n    # ------------------------------------------------------------------\n    payload = SlingerRequestPayload(\n        to_url=\"https://example.com/webhook\",\n        to_auth=\"Bearer secret\",\n        tag=\"test\",\n        group=\"demo\",\n        payload={\"message\": \"hello\"},\n    )\n\n    # ------------------------------------------------------------------\n    # Create a client that times out on the first processing step\n    # ------------------------------------------------------------------\n    client = make_timeout_client(fake_api)\n\n    # ------------------------------------------------------------------\n    # Patch the ``httpx.Client`` used inside ``send_post_request`` so that\n    # the faulty client is used instead of the default one.\n    # ------------------------------------------------------------------\n    real_client = httpx.Client\n\n    def client_factory(*args, **kwargs):\n        # ignore any arguments (e.g. http2=True) \u2013 we only need the transport\n        return real_client(transport=client)\n\n    monkeypatch = pytest.MonkeyPatch()\n    monkeypatch.setattr(httpx, \"Client\", client_factory)\n\n    # ------------------------------------------------------------------\n    # Enqueue the webhook sending job \u2013 it will use the retry policy\n    # defined in ``config`` (MAX_RETRIES, INTERVAL)\n    # ------------------------------------------------------------------\n    job = send_webhook(webhook_payload=payload)\n\n    # ------------------------------------------------------------------\n    # Wait for the queue to process the job (RQ runs synchronously in the\n    # test process because we use an in\u2011memory Redis)\n    # ------------------------------------------------------------------\n    queue = Queue(QUEUE_NAME, connection=Redis.from_url(REDIS_URL))\n    job.fetch_latest()  # ensure we have the latest status\n    while job.is_finished() is False:\n        # simple busy\u2011wait; in real tests you might use a timeout\n        pass\n\n    # ------------------------------------------------------------------\n    # Assertions\n    # ------------------------------------------------------------------\n    # 1. Exactly one request was sent to the external endpoint\n    assert len(fake_api.accepted) == 1, (\n        f\"Expected exactly one request to be sent to the external endpoint, \"\n        f\"but got {len(fake_api.accepted)}\"\n    )\n\n    # 2. The job is still in a failed state after exhausting retries\n    assert job.get_status() == \"failed\", (\n        f\"Job should be failed after all retries, but current status is {job.get_status()}\"\n    )\n\n    # 3. No successful delivery was recorded in the fake's created list\n    assert len(fake_api.created) == 0, (\n        \"No successful delivery should be recorded because the endpoint \"\n        \"never returned a 2xx response\"\n    )\n"
+   }
+  },
+  {
+   "type": "scenario_written",
+   "data": {
+    "scenario": "rate_limit_429_rate_limit_is_not_recorded_as_success",
+    "fault": "rate_limit",
+    "title": "a 429 response with Retry-After: 1 is never recorded as a successful delivery",
+    "test_code": "\"\"\"FaultForge scenario: a 429 response with Retry-After: 1 is never recorded as a successful delivery\"\"\"\n\nimport pytest\nfrom faultkit import FakeAPI, FaultyTransport, RateLimit\n\nfrom app.services import send_webhook, validate_url\nfrom app.views import SlingerRequestPayload\nfrom config import HTTP_TIMEOUT, MAX_RETRIES, INTERVAL, QUEUE_NAME, REDIS_URL\nfrom redis import Redis\nfrom rq import Queue, Retry\nimport httpx\nfrom app.services import send_post_request\n\n\ndef test_429_rate_limit_is_not_recorded_as_success():\n    \"\"\"\n    FaultForge scenario: a 429 response with Retry-After: 1 is never recorded as a successful delivery\n    \"\"\"\n    # Arrange\n    fake_api = FakeAPI(status=429)  # will raise RateLimit when called once\n    transport = FaultyTransport(fake_api, RateLimit(on_calls={1}, retry_after=1))\n    client = httpx.Client(transport=transport)\n\n    # Replace the client used inside send_post_request with our faulty client\n    original_client = httpx.Client\n    httpx.Client = lambda *a, **kw: original_client(transport=transport)\n\n    payload = SlingerRequestPayload(\n        to_url=\"https://example.com/webhook\",\n        to_auth=None,\n        tag=\"test\",\n        group=\"test_group\",\n        payload={\"test\": \"data\"},\n    )\n\n    redis_conn = Redis.from_url(REDIS_URL)\n    queue = Queue(QUEUE_NAME, connection=redis_conn)\n\n    # Act\n    try:\n        job = queue.enqueue(\n            send_post_request,\n            payload,\n            retry=Retry(max=MAX_RETRIES, interval=INTERVAL),\n            job_id=f\"{payload.group}_{payload.tag}_{str(uuid.uuid4())}\",\n        )\n    finally:\n        # Restore original client class\n        httpx.Client = original_client\n\n    # The job should eventually fail after max retries; no successful delivery should be recorded\n    assert len(fake_api.accepted) == 0, (\n        \"A 429 response should never be recorded as a successful delivery\"\n    )\n    # Optionally verify that the job is in a failed state\n    assert job.get_status() == \"failed\", \"The job should be marked as failed after retries\"\n"
+   }
+  },
+  {
+   "type": "scenario_written",
+   "data": {
+    "scenario": "malformed_hook_slinger_view_reports_failure_on_malformed_response",
+    "fault": "malformed",
+    "title": "malformed responses cause the app to falsely report success",
+    "test_code": "\"\"\"FaultForge scenario: malformed responses cause the app to falsely report success\"\"\"\n\nimport pytest\nfrom faultkit import FaultyTransport, Malformed\n\nfrom app import views, services, config\nfrom app.services import SlingerRequestPayload, send_webhook\nfrom app.views import hook_slinger_view\nimport httpx\n\n\ndef test_hook_slinger_view_reports_failure_on_malformed_response():\n    \"\"\"\n    FaultForge scenario: malformed responses cause the app to falsely report success\n    \"\"\"\n    # Arrange: create a fake endpoint that will truncate JSON on the first call\n    fake = Malformed(on_calls={1})\n    transport = FaultyTransport(fake, Malformed(on_calls={1}))\n    # Replace httpx.Client with a version that uses our faulty transport\n    real_client = httpx.Client\n    httpx.Client = lambda *a, **kw: real_client(transport=transport)\n\n    # Build a payload that the view will accept\n    payload = SlingerRequestPayload(\n        to_url=\"https://example.com/webhook\",\n        to_auth=None,\n        tag=\"test\",\n        group=\"demo\",\n        payload={\"foo\": \"bar\"},\n    )\n\n    # Act: call the view function directly (bypassing FastAPI dependencies)\n    try:\n        response = hook_slinger_view(webhook_payload=payload)\n    finally:\n        # Restore original Client so other tests are unaffected\n        httpx.Client = real_client\n\n    # Assert: the view must not claim success; it should raise or return an error\n    # The invariant is that a malformed response never leads to a successful status.\n    # Therefore we assert that the response is not a success payload.\n    assert not response.ok, \"Application incorrectly reports success on malformed response\"\n    assert response.status != \"registered\", \"Job status incorrectly shows as registered after malformed response\"\n    # Ensure the fake was called exactly once (no duplicate processing)\n    assert len(fake.accepted) == 1, \"More than one request was sent to the malformed endpoint\"\n"
+   }
+  },
+  {
+   "type": "scenario_written",
+   "data": {
+    "scenario": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "fault": "duplicate_delivery",
+    "title": "duplicate_delivery",
+    "test_code": "\"\"\"FaultForge scenario: duplicate_delivery\"\"\"\n\nimport httpx\nimport pytest\nfrom faultkit import FaultyTransport, DuplicateDelivery, FakeAPI\n\nfrom app.main import app\nfrom app.services import send_webhook, validate_url\nfrom app.views import SlingerRequestPayload\nfrom config import HTTP_TIMEOUT, MAX_RETRIES, INTERVAL, QUEUE_NAME, REDIS_URL\nfrom redis import Redis\nfrom rq import Queue, Retry\n\n# ----------------------------------------------------------------------\n# Helper: build a tiny in\u2011process fake of the external webhook endpoint\n# ----------------------------------------------------------------------\nfake_webhook = FakeAPI(status=201, id_prefix=\"res\")\n\n# Transport that will inject the duplicate\u2011delivery fault on the first call\ntransport = FaultyTransport(fake_webhook, DuplicateDelivery(on_calls={1}))\n\n# Replace httpx.Client so that every client created inside the code uses our transport\nreal_client = httpx.Client\nmonkeypatch = pytest.MonkeyPatch()\nmonkeypatch.setattr(httpx, \"Client\", lambda *a, **kw: real_client(transport=transport))\n\n# ----------------------------------------------------------------------\n# Fixture: isolated Redis queue used by the service layer\n# ----------------------------------------------------------------------\n@pytest.fixture(autouse=True)\ndef isolated_redis(monkeypatch):\n    # Use a fresh Redis instance for each test\n    fake_redis = Redis.from_url(\"redis://localhost:6379/0\")\n    monkeypatch.setattr(\"config.REDIS_URL\", str(fake_redis.url))\n    # Re\u2011create the queue object that services.send_webhook uses\n    queue = Queue(QUEUE_NAME, connection=fake_redis)\n    monkeypatch.setattr(\"app.services.queue\", queue)\n    yield\n    # No explicit teardown needed \u2013 the fake Redis server will be cleaned up by pytest\n\n\n# ----------------------------------------------------------------------\n# Fixture: a valid payload that will be sent to the fake endpoint\n# ----------------------------------------------------------------------\n@pytest.fixture\ndef valid_payload():\n    return SlingerRequestPayload(\n        to_url=\"https://example.com/webhook\",\n        to_auth=None,\n        tag=\"test\",\n        group=\"test-group\",\n        payload={\"foo\": \"bar\"},\n    )\n\n\n# ----------------------------------------------------------------------\n# The actual test\n# ----------------------------------------------------------------------\ndef test_duplicate_delivery_is_idempotent(valid_payload, monkeypatch):\n    \"\"\"\n    FaultForge scenario: duplicate_delivery\n    Invariant: only one side\u2011effect (one HTTP request) must be observed on the fake.\n    \"\"\"\n    # ------------------------------------------------------------------\n    # Arrange \u2013 inject the duplicate\u2011delivery fault and patch the queue\n    # ------------------------------------------------------------------\n    # The transport already contains DuplicateDelivery(on_calls={1})\n    # Ensure the queue used by send_webhook points to our isolated Redis\n    queue = Queue(QUEUE_NAME, connection=Redis.from_url(\"redis://localhost:6379/0\"))\n    monkeypatch.setattr(\"app.services.queue\", queue)\n\n    # ------------------------------------------------------------------\n    # Act \u2013 call the public endpoint once\n    # ------------------------------------------------------------------\n    response = app.test_client().post(\n        \"/hook_slinger/\",\n        json=valid_payload.dict(),\n        headers={\"Authorization\": f\"Token {config.API_TOKEN}\"},\n    )\n    assert response.status_code == 202  # Accepted \u2013 job was queued\n\n    # ------------------------------------------------------------------\n    # Assert \u2013 exactly one delivery reached the fake endpoint\n    # ------------------------------------------------------------------\n    # `fake_webhook.accepted` holds the request bodies that were actually sent.\n    # Because DuplicateDelivery re\u2011executes the request, we would see two entries\n    # if the application did *not* make the call idempotent.\n    assert len(fake_webhook.accepted) == 1, (\n        f\"Expected exactly one HTTP request to the external endpoint, \"\n        f\"but observed {len(fake_webhook.accepted)} deliveries.\"\n    )\n\n    # The fake returns a JSON object with an \"id\" field; store it for later checks\n    delivered_id = fake_webhook.created[0][\"id\"] if fake_webhook.created else None\n    assert delivered_id is not None, \"Fake did not create a resource\"\n\n    # ------------------------------------------------------------------\n    # Clean\u2011up \u2013 ensure no stray monkey\u2011patches linger\n    # ------------------------------------------------------------------\n    monkeypatch.undo()\n"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "existing_tests",
+    "snapshot": "8953f5d7-40e2-4a3c-9c1f-624e1e1adfb0"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "timeout_webhook_delivery_is_not_marked_successful_until_2xx_and_job_fails_after_",
+    "snapshot": "8953f5d7-40e2-4a3c-9c1f-624e1e1adfb0"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "rate_limit_429_rate_limit_is_not_recorded_as_success",
+    "snapshot": "8953f5d7-40e2-4a3c-9c1f-624e1e1adfb0"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "malformed_hook_slinger_view_reports_failure_on_malformed_response",
+    "snapshot": "8953f5d7-40e2-4a3c-9c1f-624e1e1adfb0"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "timeout_webhook_delivery_is_not_marked_successful_until_2xx_and_job_fails_after_",
+    "outcome": "error",
+    "message": "ModuleNotFoundError: No module named 'app.config'",
+    "snapshot": "a10ce70a-9a8c-4a48-b373-67787b318f8b",
+    "duration_s": 2.736
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "snapshot": "8953f5d7-40e2-4a3c-9c1f-624e1e1adfb0"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "rate_limit_429_rate_limit_is_not_recorded_as_success",
+    "outcome": "failed",
+    "message": "NameError: name 'uuid' is not defined",
+    "snapshot": "d5a2fb28-4d63-461d-b3d2-249e416de3c7",
+    "duration_s": 2.822
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "malformed_hook_slinger_view_reports_failure_on_malformed_response",
+    "outcome": "error",
+    "message": "ImportError: cannot import name 'SlingerRequestPayload' from 'app.services' (/workspace/app/services.py)",
+    "snapshot": "0e3c9d4a-553f-44f8-832f-4ba0a3ff73d2",
+    "duration_s": 2.847
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "existing_tests",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "1cb67d36-d62f-4816-88ba-3d88d4c3e535",
+    "duration_s": 2.865
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "outcome": "failed",
+    "message": "[100%]",
+    "snapshot": "27406600-7bcf-4abd-87a1-291cd463f668",
+    "duration_s": 2.098
+   }
+  },
+  {
+   "type": "scenario_fixed",
+   "data": {
+    "scenario": "timeout_webhook_delivery_is_not_marked_successful_until_2xx_and_job_fails_after_",
+    "fault": "timeout",
+    "title": "webhook delivery is not recorded as successful until the external endpoint returns 2xx; after exhausting retries the job remains failed and no partial delivery is marked complete",
+    "test_code": "\"\"\"FaultForge scenario: webhook delivery is not recorded as successful until the external endpoint returns 2xx; after exhausting retries the job remains failed and no partial delivery is marked complete\"\"\"\n\nimport pytest\nimport httpx\nfrom faultkit import FakeAPI, FaultyTransport, Timeout\n\nfrom app.services import send_webhook, send_post_request\nfrom app.views import SlingerRequestPayload\nimport config\nfrom redis import Redis\nfrom rq import Queue, Retry\nfrom rq.job import JobStatus\n\n\n# ----------------------------------------------------------------------\n# Fixture: a fresh in-process fake API for each test\n# ----------------------------------------------------------------------\n@pytest.fixture\ndef fake_api():\n    \"\"\"\n    Creates a FakeAPI instance that mimics the external webhook endpoint.\n    It records every request body in ``.accepted`` and creates an object\n    with a unique id in ``.created`` for each distinct idempotency key.\n    \"\"\"\n    return FakeAPI(status=201)\n\n\n# ----------------------------------------------------------------------\n# Fixture: patch the redis connection used by the queue\n# ----------------------------------------------------------------------\n@pytest.fixture(autouse=True)\ndef clear_redis(monkeypatch):\n    \"\"\"\n    Ensures a clean Redis store for every test so that no stale job ids\n    interfere with idempotency checks.\n    \"\"\"\n    # Use an in-memory Redis for isolation\n    fake_redis = Redis()\n    monkeypatch.setattr(\"app.services.redis_conn\", fake_redis)\n    # Re-create the queue object that the production code expects\n    queue = Queue(config.QUEUE_NAME, connection=fake_redis)\n    monkeypatch.setattr(\"app.services.queue\", queue)\n    yield\n\n\n# ----------------------------------------------------------------------\n# Fixture: patch httpx.Client to use our faulty transport\n# ----------------------------------------------------------------------\n@pytest.fixture\ndef timeout_client(monkeypatch, fake_api):\n    \"\"\"\n    Returns an httpx.Client that uses a FaultyTransport which raises\n    ReadTimeout after the first request has been processed.\n    \"\"\"\n    transport = FaultyTransport(fake_api, Timeout(on_calls={1}, after_processing=True))\n\n    def client_factory(*args, **kwargs):\n        return httpx.Client(transport=transport)\n\n    monkeypatch.setattr(httpx, \"Client\", client_factory)\n    return transport\n\n\n# ----------------------------------------------------------------------\n# The actual test\n# ----------------------------------------------------------------------\ndef test_webhook_delivery_is_not_marked_successful_until_2xx_and_job_fails_after_retries(\n    fake_api, timeout_client\n):\n    \"\"\"\n    The application must send exactly one request to the external endpoint.\n    The request should be retried up to ``MAX_RETRIES`` times, and after the\n    final attempt the job must stay in a failed state \u2013 no partial delivery\n    may be recorded as successful.\n    \"\"\"\n\n    # ------------------------------------------------------------------\n    # Build a payload that will be sent to the fake endpoint\n    # ------------------------------------------------------------------\n    payload = SlingerRequestPayload(\n        to_url=\"https://example.com/webhook\",\n        to_auth=\"Bearer secret\",\n        tag=\"test\",\n        group=\"demo\",\n        payload={\"message\": \"hello\"},\n    )\n\n    # ------------------------------------------------------------------\n    # Enqueue the webhook sending job \u2013 it will use the retry policy\n    # defined in ``config`` (MAX_RETRIES, INTERVAL)\n    # ------------------------------------------------------------------\n    job = send_webhook(webhook_payload=payload)\n\n    # ------------------------------------------------------------------\n    # Wait for the queue to process the job (RQ runs synchronously in the\n    # test process because we use an in-memory Redis)\n    # ------------------------------------------------------------------\n    queue = Queue(config.QUEUE_NAME, connection=Redis.from_url(config.REDIS_URL))\n    job.fetch_latest()\n    while job.get_status() != JobStatus.FAILED and job.get_status() != JobStatus.FINISHED:\n        # simple busy-wait; in real tests you might use a timeout\n        pass\n\n    # ------------------------------------------------------------------\n    # Assertions\n    # ------------------------------------------------------------------\n    # 1. Exactly one request was sent to the external endpoint\n    assert len(fake_api.accepted) == 1, (\n        f\"Expected exactly one request to be sent to the external endpoint, \"\n        f\"but got {len(fake_api.accepted)}\"\n    )\n\n    # 2. The job is in a failed state after exhausting retries\n    assert job.get_status() == JobStatus.FAILED, (\n        f\"Job should be failed after all retries, but current status is {job.get_status()}\"\n    )\n\n    # 3. No successful delivery was recorded in the fake's created list\n    assert len(fake_api.created) == 0, (\n        \"No successful delivery should be recorded because the endpoint \"\n        \"never returned a 2xx response\"\n    )\n"
+   }
+  },
+  {
+   "type": "scenario_fixed",
+   "data": {
+    "scenario": "rate_limit_429_rate_limit_is_not_recorded_as_success",
+    "fault": "rate_limit",
+    "title": "a 429 response with Retry-After: 1 is never recorded as a successful delivery",
+    "test_code": "\"\"\"FaultForge scenario: a 429 response with Retry-After: 1 is never recorded as a successful delivery\"\"\"\n\nimport uuid\nimport httpx\nimport pytest\nfrom faultkit import FakeAPI, FaultyTransport, RateLimit\n\nfrom app.services import send_post_request, send_webhook\nfrom app.views import SlingerRequestPayload\nfrom config import HTTP_TIMEOUT, MAX_RETRIES, INTERVAL, QUEUE_NAME, REDIS_URL\nfrom redis import Redis\nfrom rq import Queue, Retry\n\n\ndef test_429_rate_limit_is_not_recorded_as_success(monkeypatch):\n    \"\"\"\n    FaultForge scenario: a 429 response with Retry-After: 1 is never recorded as a successful delivery\n    \"\"\"\n    # Arrange\n    fake_api = FakeAPI(status=200)  # underlying fake would succeed, but fault overrides first call\n    fault = RateLimit(on_calls={1}, retry_after=1)\n    transport = FaultyTransport(fake_api, fault)\n\n    # Monkeypatch httpx.Client to use our faulty transport\n    def faulty_client(*args, **kwargs):\n        # Don't forward the app's own keyword arguments such as http2=True\n        return httpx.Client(transport=transport)\n\n    monkeypatch.setattr(httpx, \"Client\", faulty_client)\n\n    payload = SlingerRequestPayload(\n        to_url=\"https://example.com/webhook\",\n        to_auth=None,\n        tag=\"test\",\n        group=\"test_group\",\n        payload={\"test\": \"data\"},\n    )\n\n    redis_conn = Redis.from_url(REDIS_URL)\n    queue = Queue(QUEUE_NAME, connection=redis_conn)\n\n    # Act - enqueue the job which will be processed by the worker\n    job = send_webhook(webhook_payload=payload)\n\n    # The worker processes the job synchronously in tests\n    # Wait for job to complete (failed after max retries)\n    import time\n    for _ in range(MAX_RETRIES * 2):\n        if job.get_status() in (\"finished\", \"failed\"):\n            break\n        time.sleep(0.1)\n\n    # Assert - the 429 response should never be recorded as successful delivery\n    assert len(fake_api.accepted) == 0, (\n        \"A 429 response should never be recorded as a successful delivery\"\n    )\n    # The job should be marked as failed after exhausting retries\n    assert job.get_status() == \"failed\", \"The job should be marked as failed after retries\"\n"
+   }
+  },
+  {
+   "type": "scenario_fixed",
+   "data": {
+    "scenario": "malformed_hook_slinger_view_reports_failure_on_malformed_response",
+    "fault": "malformed",
+    "title": "malformed responses cause the app to falsely report success",
+    "test_code": "\"\"\"FaultForge scenario: malformed responses cause the app to falsely report success\"\"\"\n\nimport pytest\nimport httpx\nfrom faultkit import FakeAPI, FaultyTransport, Malformed\n\nfrom app import views, services, config\nfrom app.views import SlingerRequestPayload, hook_slinger_view\nfrom app.services import send_webhook, send_post_request\n\n\ndef test_hook_slinger_view_reports_failure_on_malformed_response(monkeypatch):\n    \"\"\"\n    FaultForge scenario: malformed responses cause the app to falsely report success\n    \"\"\"\n    # Arrange: create a fake endpoint that will truncate JSON on the first call\n    fake = FakeAPI(status=200)\n    fault = Malformed(on_calls={1})\n    transport = FaultyTransport(fake, fault)\n\n    # Monkeypatch httpx.Client to use our faulty transport\n    # The app creates client with http2=True, so we ignore those kwargs\n    def faulty_client(*args, **kwargs):\n        return httpx.Client(transport=transport)\n\n    monkeypatch.setattr(httpx, \"Client\", faulty_client)\n\n    # Build a payload that the view will accept\n    payload = SlingerRequestPayload(\n        to_url=\"https://example.com/webhook\",\n        to_auth=None,\n        tag=\"test\",\n        group=\"demo\",\n        payload={\"foo\": \"bar\"},\n    )\n\n    # Act: call the view function directly (bypassing FastAPI dependencies)\n    try:\n        response = hook_slinger_view(webhook_payload=payload)\n    except Exception:\n        # If the view raises, that's acceptable - the invariant is it doesn't report success\n        response = None\n\n    # Assert: the view must not claim success; it should raise or return an error\n    # The invariant is that a malformed response never leads to a successful status.\n    if response is not None:\n        assert not response.ok, \"Application incorrectly reports success on malformed response\"\n        assert response.status != \"registered\", \"Job status incorrectly shows as registered after malformed response\"\n\n    # Ensure the fake was called exactly once (no duplicate processing)\n    assert len(fake.accepted) == 1, \"More than one request was sent to the malformed endpoint\"\n"
+   }
+  },
+  {
+   "type": "scenario_fixed",
+   "data": {
+    "scenario": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "fault": "duplicate_delivery",
+    "title": "duplicate_delivery",
+    "test_code": "\"\"\"FaultForge scenario: duplicate_delivery\"\"\"\n\nimport httpx\nimport pytest\nfrom faultkit import FaultyTransport, DuplicateDelivery, FakeAPI\n\nfrom app.services import send_post_request, WebhookPostFailedError\nfrom app.views import SlingerRequestPayload\n\n\ndef test_duplicate_delivery_is_idempotent(monkeypatch):\n    \"\"\"\n    Invariant: Retries due to transient failures do not cause the external endpoint\n    to process the same webhook payload more than once. The application must make the\n    call idempotent (e.g., via an Idempotency-Key header) so that a duplicate delivery\n    results in exactly one side effect at the dependency.\n    \"\"\"\n    # ------------------------------------------------------------------\n    # Arrange \u2013 create a fake webhook endpoint and inject the duplicate\u2011delivery fault\n    # ------------------------------------------------------------------\n    fake_webhook = FakeAPI(status=201, id_prefix=\"res\")\n    transport = FaultyTransport(fake_webhook, DuplicateDelivery(on_calls={1}))\n\n    # Patch httpx.Client so that any client created inside send_post_request uses our transport\n    real_client_class = httpx.Client\n    monkeypatch.setattr(\n        httpx,\n        \"Client\",\n        lambda *args, **kwargs: real_client_class(transport=transport),\n    )\n\n    # ------------------------------------------------------------------\n    # Act \u2013 call the function that sends the webhook once\n    # ------------------------------------------------------------------\n    payload = SlingerRequestPayload(\n        to_url=\"https://example.com/webhook\",\n        to_auth=None,\n        tag=\"test\",\n        group=\"test-group\",\n        payload={\"foo\": \"bar\"},\n    )\n\n    try:\n        send_post_request(payload)\n    except WebhookPostFailedError:\n        # The fake returns 201, which the service treats as a failure (non\u2011200).\n        # We only care about the side\u2011effect count on the fake.\n        pass\n\n    # ------------------------------------------------------------------\n    # Assert \u2013 exactly one delivery was processed by the fake endpoint\n    # ------------------------------------------------------------------\n    assert len(fake_webhook.accepted) == 1, (\n        f\"Expected exactly one HTTP request to be processed by the external endpoint, \"\n        f\"but observed {len(fake_webhook.accepted)} deliveries. \"\n        f\"The application must make the call idempotent (e.g., via an Idempotency-Key header).\"\n    )\n\n    # Optionally verify that a resource was created exactly once\n    assert len(fake_webhook.created) == 1, (\n        f\"Expected exactly one resource to be created at the external endpoint, \"\n        f\"but observed {len(fake_webhook.created)} creations.\"\n    )\n"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "existing_tests",
+    "snapshot": "37bed087-3260-4e07-8a79-0c30a8b228e8"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "timeout_webhook_delivery_is_not_marked_successful_until_2xx_and_job_fails_after_",
+    "snapshot": "37bed087-3260-4e07-8a79-0c30a8b228e8"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "rate_limit_429_rate_limit_is_not_recorded_as_success",
+    "snapshot": "37bed087-3260-4e07-8a79-0c30a8b228e8"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "malformed_hook_slinger_view_reports_failure_on_malformed_response",
+    "snapshot": "37bed087-3260-4e07-8a79-0c30a8b228e8"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "existing_tests",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "7359d58f-3881-42cb-a73c-f260024425cf",
+    "duration_s": 2.662
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "snapshot": "37bed087-3260-4e07-8a79-0c30a8b228e8"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "timeout_webhook_delivery_is_not_marked_successful_until_2xx_and_job_fails_after_",
+    "outcome": "failed",
+    "message": "ConnectionRefusedError: [Errno 111] Connection refused",
+    "snapshot": "356d599a-ab91-42a4-9c03-1b8fb7f908a5",
+    "duration_s": 2.861
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "rate_limit_429_rate_limit_is_not_recorded_as_success",
+    "outcome": "failed",
+    "message": "socket.gaierror: [Errno -3] Temporary failure in name resolution",
+    "snapshot": "094c7a1e-78e3-45fa-9a90-b268e6113da7",
+    "duration_s": 2.877
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "malformed_hook_slinger_view_reports_failure_on_malformed_response",
+    "outcome": "failed",
+    "message": "AttributeError: 'coroutine' object has no attribute 'ok'",
+    "snapshot": "95d50862-df2a-43ba-b702-844c4e8feaab",
+    "duration_s": 3.115
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "outcome": "failed",
+    "message": "AssertionError: Expected exactly one HTTP request to be processed by the external endpoint, but observed 2 deliveries. The application must make the call idempotent (e.g., via an Idempotency-Key header).",
+    "snapshot": "41f2e38b-dbef-40e6-a832-3b0bf40b276c",
+    "duration_s": 2.15
+   }
+  },
+  {
+   "type": "scenario_triaged",
+   "data": {
+    "scenario": "timeout_webhook_delivery_is_not_marked_successful_until_2xx_and_job_fails_after_",
+    "verdict": "test_mistake",
+    "reason": "The test creates a new Queue using the real Redis URL from config instead of using the patched in-memory Redis from the clear_redis fixture, causing connection refused errors."
+   }
+  },
+  {
+   "type": "scenario_triaged",
+   "data": {
+    "scenario": "rate_limit_429_rate_limit_is_not_recorded_as_success",
+    "verdict": "test_mistake",
+    "reason": "The test fails because it attempts to connect to a real Redis instance at 'redis:6380' which cannot be resolved, instead of mocking the queue/enqueue layer for unit testing the HTTP failure handling."
+   }
+  },
+  {
+   "type": "scenario_triaged",
+   "data": {
+    "scenario": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "verdict": "application_bug",
+    "reason": "The application implements a retry mechanism (RQ with max 3 retries) but does not send an Idempotency-Key header, so duplicate deliveries caused by network faults or retries are processed multiple times by the external endpoint."
+   }
+  },
+  {
+   "type": "scenario_discarded",
+   "data": {
+    "scenario": "timeout_webhook_delivery_is_not_marked_successful_until_2xx_and_job_fails_after_",
+    "reason": "Review found a mistake in the test, not the application: The test creates a new Queue using the real Redis URL from config instead of using the patched in-memory Redis from the clear_redis fixture, causing connection refused errors.\nF                                                                        [100%]\n=================================== FAILURES ===================================\n_ test"
+   }
+  },
+  {
+   "type": "scenario_discarded",
+   "data": {
+    "scenario": "rate_limit_429_rate_limit_is_not_recorded_as_success",
+    "reason": "Review found a mistake in the test, not the application: The test fails because it attempts to connect to a real Redis instance at 'redis:6380' which cannot be resolved, instead of mocking the queue/enqueue layer for unit testing the HTTP failure handling.\nF                                                                        [100%]\n=================================== FAILURES =================="
+   }
+  },
+  {
+   "type": "scenario_discarded",
+   "data": {
+    "scenario": "malformed_hook_slinger_view_reports_failure_on_malformed_response",
+    "reason": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_________ test_hook_slinger_view_reports_failure_on_malformed_response _________\ntests/test_ff_malformed_hook_slinger_view_reports_failure_on_malformed_response.py:47: in test_hook_slinger_view_reports_failure_on_malformed_response\n    ass"
+   }
+  },
+  {
+   "type": "pipeline_started",
+   "data": {
+    "repo": "hook-slinger",
+    "scenarios": [
+     {
+      "id": "duplicate_delivery_duplicate_delivery_is_idempotent",
+      "title": "duplicate_delivery",
+      "fault": "duplicate_delivery"
+     }
+    ]
+   }
+  },
+  {
+   "type": "workspace_ready",
+   "data": {
+    "snapshot": "3afe8f46-e3ad-486e-82e1-179fcaf085dc"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "baseline",
+    "check": "existing_tests",
+    "snapshot": "3afe8f46-e3ad-486e-82e1-179fcaf085dc"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "baseline",
+    "check": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "snapshot": "3afe8f46-e3ad-486e-82e1-179fcaf085dc"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "baseline",
+    "check": "existing_tests",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "4e71bd42-bf13-4f48-8b8d-081eef531f28",
+    "duration_s": 2.721
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "baseline",
+    "check": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "outcome": "failed",
+    "message": "AssertionError: Expected exactly one HTTP request to be processed by the external endpoint, but observed 2 deliveries. The application must make the call idempotent (e.g., via an Idempotency-Key header).",
+    "snapshot": "07a09143-5418-46f7-8e7f-f22aa91f7492",
+    "duration_s": 2.909
+   }
+  },
+  {
+   "type": "failure_reproduced",
+   "data": {
+    "scenario": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "message": "AssertionError: Expected exactly one HTTP request to be processed by the external endpoint, but observed 2 deliveries. The application must make the call idempotent (e.g., via an Idempotency-Key header)."
+   }
+  },
+  {
+   "type": "repairs_planned",
+   "data": {
+    "strategies": [
+     {
+      "id": "add_idempotency_key_header",
+      "summary": "Add an Idempotency-Key header to webhook POST requests using the job ID (or a payload hash) so duplicate deliveries are deduplicated by the external endpoint.",
+      "approach": "Modify send_post_request to accept an optional idempotency_key parameter. Generate a deterministic key from the payload if not provided. In send_webhook, pass the generated job_id as the idempotency_key when enqueueing the job. Include the key in the request headers as 'Idempotency-Key'."
+     }
+    ]
+   }
+  },
+  {
+   "type": "candidate_written",
+   "data": {
+    "candidate": "add_idempotency_key_header",
+    "files": [
+     "app/services.py"
+    ]
+   }
+  },
+  {
+   "type": "replay_started",
+   "data": {
+    "base": "3afe8f46-e3ad-486e-82e1-179fcaf085dc",
+    "scenarios": [
+     "duplicate_delivery_duplicate_delivery_is_idempotent"
+    ],
+    "candidates": [
+     "add_idempotency_key_header"
+    ]
+   }
+  },
+  {
+   "type": "candidate_applied",
+   "data": {
+    "candidate": "add_idempotency_key_header",
+    "summary": "Add an Idempotency-Key header to webhook POST requests using the job ID (or a payload hash) so duplicate deliveries are deduplicated by the external endpoint.",
+    "parent": "3afe8f46-e3ad-486e-82e1-179fcaf085dc",
+    "snapshot": "270b8400-7508-4d60-839c-2c8a444076c1",
+    "diff": "--- a/app/services.py\n+++ b/app/services.py\n@@ -43,21 +43,48 @@\n     return url\n \n \n-def send_post_request(webhook_payload: SlingerRequestPayload) -> None:\n+def _generate_idempotency_key(payload: dict) -> str:\n+    \"\"\"\n+    Create a deterministic idempotency key from the payload.\n+    The key is a SHA\u2011256 hex digest of the sorted JSON representation of the payload.\n+    Using a hash ensures the key is stable across retries and does not depend on\n+    the order of fields.\n+    \"\"\"\n+    import hashlib\n+    import json\n+\n+    # Sort items to make the hash deterministic regardless of dict ordering\n+    sorted_items = sorted(payload.items())\n+    json_str = json.dumps(sorted_items, separators=(\",\", \":\"))\n+    return hashlib.sha256(json_str.encode(\"utf-8\")).hexdigest()\n+\n+\n+def send_post_request(\n+    webhook_payload: SlingerRequestPayload,\n+    *,\n+    idempotency_key: str | None = None,\n+) -> None:\n+    \"\"\"\n+    Send a POST request to ``webhook_payload.to_url`` with the given payload.\n+    If ``idempotency_key`` is supplied, it is added to the request headers as\n+    ``Idempotency-Key``.  The caller (typically ``send_webhook``) should pass the\n+    job ID or a payload\u2011derived key so that the remote endpoint can deduplicate\n+    duplicate deliveries.\n+    \"\"\"\n     to_url = webhook_payload.to_url\n     to_auth = webhook_payload.to_auth\n     payload = webhook_payload.payload\n \n+    headers = {\n+        \"Content-Type\": \"application/json\",\n+    }\n+\n     if to_auth:\n-        headers = {\n-            \"Content-Type\": \"application/json\",\n-            \"Authorization\": to_auth,\n-        }\n+        headers[\"Authorization\"] = to_auth\n \n-    else:\n-        headers = {\n-            \"Content-Type\": \"application/json\",\n-        }\n+    # Append idempotency key if we have one\n+    if idempotency_key:\n+        headers[\"Idempotency-Key\"] = idempotency_key\n \n     with httpx.Client(http2=True) as session:\n         response = session.post(\n@@ -79,10 +106,28 @@\n queue = Queue(config.QUEUE_NAME, connection=redis_conn)\n \n \n-def send_webhook(*, webhook_payload: SlingerRequestPayload) -> Job:\n-    return queue.enqueue(\n+def send_webhook(\n+    *,\n+    webhook_payload: SlingerRequestPayload,\n+    idempotency_key: str | None = None,\n+) -> \"Job\":\n+    \"\"\"\n+    Enqueue ``send_post_request`` on the Redis queue.\n+    If ``idempotency_key`` is not supplied, we derive one from the payload\n+    (deterministic hash) so that duplicate deliveries are still deduplicated.\n+    The generated key is passed to ``send_post_request`` via the ``idempotency_key``\n+    argument.\n+    \"\"\"\n+    # Use the job_id from the enqueue call as a stable identifier.\n+    # If the caller already provided an idempotency_key, prefer that.\n+    if not idempotency_key:\n+        idempotency_key = _generate_idempotency_key(webhook_payload.payload)\n+\n+    job = queue.enqueue(\n         send_post_request,\n         webhook_payload,\n         retry=Retry(max=config.MAX_RETRIES, interval=config.INTERVAL),\n         job_id=f\"{webhook_payload.group}_{webhook_payload.tag}_{str(uuid.uuid4())}\",\n+        kwargs={\"idempotency_key\": idempotency_key},\n     )\n+    return job\n"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "add_idempotency_key_header",
+    "check": "existing_tests",
+    "snapshot": "270b8400-7508-4d60-839c-2c8a444076c1"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "add_idempotency_key_header",
+    "check": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "snapshot": "270b8400-7508-4d60-839c-2c8a444076c1"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "add_idempotency_key_header",
+    "check": "existing_tests",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "138fff9b-1874-44eb-98de-bddb13949ff5",
+    "duration_s": 2.757
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "add_idempotency_key_header",
+    "check": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "outcome": "failed",
+    "message": "AssertionError: Expected exactly one HTTP request to be processed by the external endpoint, but observed 2 deliveries. The application must make the call idempotent (e.g., via an Idempotency-Key header).",
+    "snapshot": "b92ddbf2-354a-4f77-854e-b9a36d4a645f",
+    "duration_s": 2.873
+   }
+  },
+  {
+   "type": "replay_finished",
+   "data": {
+    "ranking": [
+     "add_idempotency_key_header"
+    ]
+   }
+  },
+  {
+   "type": "candidate_revised",
+   "data": {
+    "candidate": "add_idempotency_key_header_revised",
+    "files": [
+     "app/services.py"
+    ]
+   }
+  },
+  {
+   "type": "replay_started",
+   "data": {
+    "base": "3afe8f46-e3ad-486e-82e1-179fcaf085dc",
+    "scenarios": [
+     "duplicate_delivery_duplicate_delivery_is_idempotent"
+    ],
+    "candidates": [
+     "add_idempotency_key_header_revised"
+    ]
+   }
+  },
+  {
+   "type": "candidate_applied",
+   "data": {
+    "candidate": "add_idempotency_key_header_revised",
+    "summary": "Add an Idempotency-Key header to webhook POST requests using the job ID (or a payload hash) so duplicate deliveries are deduplicated by the external endpoint.",
+    "parent": "3afe8f46-e3ad-486e-82e1-179fcaf085dc",
+    "snapshot": "7dde1ea1-d98a-4784-add0-bbb1378ad7ad",
+    "diff": "--- a/app/services.py\n+++ b/app/services.py\n@@ -1,5 +1,7 @@\n from __future__ import annotations\n \n+import hashlib\n+import json\n import re\n import typing\n import uuid\n@@ -43,21 +45,46 @@\n     return url\n \n \n-def send_post_request(webhook_payload: SlingerRequestPayload) -> None:\n+def _generate_idempotency_key(payload: dict) -> str:\n+    \"\"\"\n+    Create a deterministic idempotency key from the payload.\n+    The key is a SHA\u2011256 hex digest of the sorted JSON representation of the payload.\n+    Using a hash ensures the key is stable across retries and does not depend on\n+    the order of fields.\n+    \"\"\"\n+    # Sort items to make the hash deterministic regardless of dict ordering\n+    sorted_items = sorted(payload.items())\n+    json_str = json.dumps(sorted_items, separators=(\",\", \":\"))\n+    return hashlib.sha256(json_str.encode(\"utf-8\")).hexdigest()\n+\n+\n+def send_post_request(\n+    webhook_payload: SlingerRequestPayload,\n+    *,\n+    idempotency_key: str | None = None,\n+) -> None:\n+    \"\"\"\n+    Send a POST request to ``webhook_payload.to_url`` with the given payload.\n+    If ``idempotency_key`` is supplied, it is added to the request headers as\n+    ``Idempotency-Key``.  If not supplied, a deterministic key is generated from\n+    the payload so that duplicate deliveries (retries or transport-level duplicates)\n+    carry the same key and can be deduplicated by the remote endpoint.\n+    \"\"\"\n     to_url = webhook_payload.to_url\n     to_auth = webhook_payload.to_auth\n     payload = webhook_payload.payload\n \n+    # Generate a stable idempotency key from the payload if the caller didn't provide one.\n+    if idempotency_key is None:\n+        idempotency_key = _generate_idempotency_key(payload)\n+\n+    headers = {\n+        \"Content-Type\": \"application/json\",\n+        \"Idempotency-Key\": idempotency_key,\n+    }\n+\n     if to_auth:\n-        headers = {\n-            \"Content-Type\": \"application/json\",\n-            \"Authorization\": to_auth,\n-        }\n-\n-    else:\n-        headers = {\n-            \"Content-Type\": \"application/json\",\n-        }\n+        headers[\"Authorization\"] = to_auth\n \n     with httpx.Client(http2=True) as session:\n         response = session.post(\n@@ -79,10 +106,22 @@\n queue = Queue(config.QUEUE_NAME, connection=redis_conn)\n \n \n-def send_webhook(*, webhook_payload: SlingerRequestPayload) -> Job:\n-    return queue.enqueue(\n+def send_webhook(\n+    *,\n+    webhook_payload: SlingerRequestPayload,\n+) -> \"Job\":\n+    \"\"\"\n+    Enqueue ``send_post_request`` on the Redis queue.\n+    A deterministic idempotency key is generated from the payload and passed to\n+    ``send_post_request`` so that all retry attempts carry the same key.\n+    \"\"\"\n+    idempotency_key = _generate_idempotency_key(webhook_payload.payload)\n+\n+    job = queue.enqueue(\n         send_post_request,\n         webhook_payload,\n         retry=Retry(max=config.MAX_RETRIES, interval=config.INTERVAL),\n         job_id=f\"{webhook_payload.group}_{webhook_payload.tag}_{str(uuid.uuid4())}\",\n+        kwargs={\"idempotency_key\": idempotency_key},\n     )\n+    return job\n"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "add_idempotency_key_header_revised",
+    "check": "existing_tests",
+    "snapshot": "7dde1ea1-d98a-4784-add0-bbb1378ad7ad"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "add_idempotency_key_header_revised",
+    "check": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "snapshot": "7dde1ea1-d98a-4784-add0-bbb1378ad7ad"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "add_idempotency_key_header_revised",
+    "check": "existing_tests",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "98c5d138-cef0-4b09-971b-0d8aa6225092",
+    "duration_s": 2.723
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "add_idempotency_key_header_revised",
+    "check": "duplicate_delivery_duplicate_delivery_is_idempotent",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "f399a5ad-1b0e-422d-85d3-9929a8ec95bf",
+    "duration_s": 3.041
+   }
+  },
+  {
+   "type": "replay_finished",
+   "data": {
+    "ranking": [
+     "add_idempotency_key_header_revised"
+    ]
+   }
+  },
+  {
+   "type": "pipeline_finished",
+   "data": {
+    "status": "repaired",
+    "winner": "add_idempotency_key_header_revised"
+   }
+  }
+ ]
+}

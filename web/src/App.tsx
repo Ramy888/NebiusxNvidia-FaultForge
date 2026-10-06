@@ -108,7 +108,7 @@ export default function App() {
         </div>
         <div className="actions">
           <button className="primary" onClick={() => run()} disabled={!example || busy}>
-            {busy ? "Running…" : "Break it and repair it"}
+            {busy ? "Running…" : info?.mode === "replay" ? "Replay the recorded run" : "Break it and repair it"}
           </button>
           {info?.mode === "live" && (
             <>
@@ -147,7 +147,11 @@ export default function App() {
               <Evidence
                 result={result}
                 candidateId={selected && selected !== "baseline" ? selected : null}
-                actions={result.winner && runId ? <PullRequest key={runId} runId={runId} /> : null}
+                actions={
+                  result.winner && runId && info?.mode !== "replay" ? (
+                    <PullRequest key={runId} runId={runId} />
+                  ) : null
+                }
               />
             )}
           </div>

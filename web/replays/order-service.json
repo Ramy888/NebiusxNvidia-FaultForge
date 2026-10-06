@@ -1,0 +1,823 @@
+{
+ "id": "order-service",
+ "description": "Shop backend that places orders with a fulfillment provider and retries requests that time out.",
+ "recorded": "2026-10-05",
+ "result": {
+  "repo": "order-service",
+  "status": "repaired",
+  "target": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+  "winner": "add_idempotency_key_to_fulfillment_requests",
+  "existing_tests": {
+   "outcome": "passed",
+   "message": "",
+   "duration_s": 8.749,
+   "output": "...                                                                      [100%]\n"
+  },
+  "scenarios": [
+   {
+    "id": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "title": "the fulfillment provider processes the request but the response times out",
+    "fault": "timeout",
+    "test_path": "tests/test_ff_timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t.py",
+    "test_code": "\"\"\"FaultForge scenario: the fulfillment provider processes the request but the response times out\"\"\"\n\nimport httpx\nfrom faultkit import FakeAPI, FaultyTransport, Timeout\n\nfrom orders.fulfillment import FulfillmentClient\nfrom orders.service import OrderService\n\n\ndef test_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_times_out():\n    # Arrange\n    fake_api = FakeAPI(status=201)\n    http_client = httpx.Client(\n        transport=FaultyTransport(fake_api, Timeout(on_calls={1}, after_processing=True))\n    )\n    fulfillment_client = FulfillmentClient(http_client, base_url=\"https://fulfillment.test\")\n    order_service = OrderService(fulfillment_client, max_retries=2)\n\n    # Act\n    order = order_service.place_order(customer_id=\"cust_123\", items=[{\"sku\": \"A\", \"qty\": 1}])\n\n    # Assert\n    assert len(fake_api.created) == 1, \"exactly one fulfillment should be created at the provider\"\n    assert order.fulfillment_id == fake_api.created[0][\"id\"], \"order must reference the created fulfillment ID\"\n    assert len(order_service.list_orders()) == 1, \"order should be recorded in service state\"\n",
+    "baseline": {
+     "outcome": "failed",
+     "message": "AssertionError: exactly one fulfillment should be created at the provider",
+     "duration_s": 3.403,
+     "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_ test_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_times_out _\ntests/test_ff_timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t.py:23: in test_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_times_out\n    assert len(fake_api.created) == 1, \"exactly one fulfillment should be created at the provider\"\nE   AssertionError: exactly one fulfillment should be created at the provider\nE   assert 2 == 1\nE    +  where 2 = len([{'id': 'res_1', 'status': 'accepted'}, {'id': 'res_2', 'status': 'accepted'}])\nE    +    where [{'id': 'res_1', 'status': 'accepted'}, {'id': 'res_2', 'status': 'accepted'}] = <faultkit.api.FakeAPI object at 0x7ffff64cce90>.created\n=========================== short test summary info ============================\nFAILED tests/test_ff_timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t.py::test_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_times_out\n"
+    }
+   },
+   {
+    "id": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "title": "the first request is rate\u2011limited and must not create an order",
+    "fault": "rate_limit",
+    "test_path": "tests/test_ff_rate_limit_place_order_does_not_record_order_when_rate_limited.py",
+    "test_code": "\"\"\"FaultForge scenario: the first request is rate\u2011limited and must not create an order\"\"\"\n\nimport httpx\nfrom faultkit import FakeAPI, FaultyTransport, RateLimit\n\nfrom orders.fulfillment import FulfillmentClient\nfrom orders.service import OrderService\n\n\ndef test_place_order_does_not_record_order_when_rate_limited():\n    # The provider will answer the first call with 429 and a Retry\u2011After header.\n    # The fake API is configured for success (201) but the fault intercepts the first call.\n    fake_api = FakeAPI(status=201)\n    http = httpx.Client(\n        transport=FaultyTransport(fake_api, RateLimit(on_calls={1}, retry_after=1))\n    )\n    fulfillment = FulfillmentClient(http, base_url=\"https://fulfill.test\")\n    service = OrderService(fulfillment, max_retries=2)\n\n    # Execute the operation that risks the invariant.\n    # OrderService only retries on TimeoutException, not on 429, so an exception is expected.\n    try:\n        service.place_order(customer_id=\"cust_123\", items=[{\"sku\": \"A\", \"qty\": 1}])\n    except Exception:\n        # Raising an error is acceptable; we only care about side\u2011effects.\n        pass\n\n    # The invariant: no order must be recorded when the provider returns 429.\n    assert len(service.list_orders()) == 0, (\n        \"an order must not be recorded when the fulfillment provider returns 429\"\n    )\n",
+    "baseline": {
+     "outcome": "passed",
+     "message": "",
+     "duration_s": 8.868,
+     "output": ".                                                                        [100%]\n"
+    }
+   },
+   {
+    "id": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "title": "malformed response causes duplicate fulfillment creation",
+    "fault": "malformed",
+    "test_path": "tests/test_ff_malformed_place_order_does_not_record_when_provider_returns_malformed_5xx.py",
+    "test_code": "\"\"\"FaultForge scenario: malformed response causes duplicate fulfillment creation\"\"\"\n\nimport httpx\nfrom faultkit import FaultyTransport, Malformed\n\nfrom orders.fulfillment import FulfillmentClient\nfrom orders.service import OrderService, Order\nfrom faultkit import FakeAPI\n\n\ndef test_place_order_does_not_record_when_provider_returns_malformed_5xx():\n    fake = FakeAPI(status=500, body={\"error\": \"truncated\"})\n    http = httpx.Client(\n        transport=FaultyTransport(fake, Malformed(on_calls={1}))\n    )\n    fulfillment = FulfillmentClient(http, base_url=\"https://fulfill.test\")\n    service = OrderService(fulfillment, max_retries=2)\n\n    try:\n        service.place_order(\"cust_123\", [{\"sku\": \"A\", \"qty\": 1}])\n    except Exception:\n        pass\n\n    assert len(service._orders) == 0, \"no order should be recorded when the provider fails\"\n    assert len(fake.accepted) == 1, \"exactly one request must be sent to the provider\"\n",
+    "baseline": {
+     "outcome": "passed",
+     "message": "",
+     "duration_s": 8.6,
+     "output": ".                                                                        [100%]\n"
+    }
+   }
+  ],
+  "candidates": [
+   {
+    "id": "add_idempotency_key_to_fulfillment_requests",
+    "summary": "Send an Idempotency-Key header with the order_id so the fulfillment provider can deduplicate retries.",
+    "accepted": true,
+    "rejection_reason": "",
+    "diff": "--- a/orders/fulfillment.py\n+++ b/orders/fulfillment.py\n@@ -8,10 +8,16 @@\n         self._http = http\n         self._base_url = base_url.rstrip(\"/\")\n \n-    def create_fulfillment(self, order_id: str, customer_id: str, items: list[dict]) -> dict:\n+    def create_fulfillment(\n+        self, order_id: str, customer_id: str, items: list[dict], idempotency_key: str | None = None\n+    ) -> dict:\n+        headers = {}\n+        if idempotency_key is not None:\n+            headers[\"Idempotency-Key\"] = idempotency_key\n         response = self._http.post(\n             f\"{self._base_url}/fulfillments\",\n             json={\"order_id\": order_id, \"customer_id\": customer_id, \"items\": items},\n+            headers=headers,\n             timeout=5.0,\n         )\n         response.raise_for_status()\n--- a/orders/service.py\n+++ b/orders/service.py\n@@ -28,7 +28,9 @@\n         # The provider can be slow at peak times, so retry timed-out requests.\n         for attempt in range(self._max_retries + 1):\n             try:\n-                result = self._fulfillment.create_fulfillment(order_id, customer_id, items)\n+                result = self._fulfillment.create_fulfillment(\n+                    order_id, customer_id, items, idempotency_key=order_id\n+                )\n                 break\n             except httpx.TimeoutException:\n                 if attempt == self._max_retries:\n",
+    "diff_lines": 12,
+    "fixed": [
+     "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t"
+    ],
+    "regressed": [],
+    "existing_tests": {
+     "outcome": "passed",
+     "message": "",
+     "duration_s": 8.358,
+     "output": "...                                                                      [100%]\n"
+    },
+    "scenarios": {
+     "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t": {
+      "outcome": "passed",
+      "message": "",
+      "duration_s": 8.53,
+      "output": ".                                                                        [100%]\n"
+     },
+     "rate_limit_place_order_does_not_record_order_when_rate_limited": {
+      "outcome": "passed",
+      "message": "",
+      "duration_s": 9.477,
+      "output": ".                                                                        [100%]\n"
+     },
+     "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx": {
+      "outcome": "passed",
+      "message": "",
+      "duration_s": 10.624,
+      "output": ".                                                                        [100%]\n"
+     }
+    }
+   },
+   {
+    "id": "retry_only_on_connect_timeout",
+    "summary": "Distinguish between connection timeouts and read timeouts, retrying only on the former.",
+    "accepted": false,
+    "rejection_reason": "fixes no failing scenario",
+    "diff": "",
+    "diff_lines": 0,
+    "fixed": [],
+    "regressed": [],
+    "existing_tests": {
+     "outcome": "passed",
+     "message": "",
+     "duration_s": 6.57,
+     "output": "...                                                                      [100%]\n"
+    },
+    "scenarios": {
+     "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t": {
+      "outcome": "failed",
+      "message": "AssertionError: exactly one fulfillment should be created at the provider",
+      "duration_s": 6.641,
+      "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_ test_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_times_out _\ntests/test_ff_timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t.py:23: in test_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_times_out\n    assert len(fake_api.created) == 1, \"exactly one fulfillment should be created at the provider\"\nE   AssertionError: exactly one fulfillment should be created at the provider\nE   assert 2 == 1\nE    +  where 2 = len([{'id': 'res_1', 'status': 'accepted'}, {'id': 'res_2', 'status': 'accepted'}])\nE    +    where [{'id': 'res_1', 'status': 'accepted'}, {'id': 'res_2', 'status': 'accepted'}] = <faultkit.api.FakeAPI object at 0x7ffff6529160>.created\n=========================== short test summary info ============================\nFAILED tests/test_ff_timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t.py::test_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_times_out\n"
+     },
+     "rate_limit_place_order_does_not_record_order_when_rate_limited": {
+      "outcome": "passed",
+      "message": "",
+      "duration_s": 6.056,
+      "output": ".                                                                        [100%]\n"
+     },
+     "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx": {
+      "outcome": "passed",
+      "message": "",
+      "duration_s": 5.997,
+      "output": ".                                                                        [100%]\n"
+     }
+    }
+   }
+  ],
+  "dependency": {
+   "name": "Fulfillment Provider API",
+   "operation": "orders.service:OrderService.place_order",
+   "call_sites": [
+    "orders/fulfillment.py:FulfillmentClient.create_fulfillment"
+   ]
+  },
+  "research": [
+   {
+    "title": "Idempotent requests | Stripe API Reference",
+    "url": "https://docs.stripe.com/api/idempotent_requests"
+   },
+   {
+    "title": "Idempotent requests - Gigs API Docs",
+    "url": "https://developers.gigs.com/api/idempotent-requests"
+   },
+   {
+    "title": "Idempotent requests | Chargebee API documentation",
+    "url": "https://apidocs.chargebee.com/docs/api/idempotency"
+   },
+   {
+    "title": "Idempotent requests - Fintoc",
+    "url": "https://docs.fintoc.com/api/fintoc-api/idempotent-requests"
+   },
+   {
+    "title": "Idempotent requests",
+    "url": "https://shopify.dev/docs/api/usage/idempotent-requests"
+   }
+  ],
+  "markdown": "# FaultForge report: order-service\n\n**A repair fixed the reproduced failure without breaking existing tests.**\n\n## Dependency\n\n**Fulfillment Provider API** \u2014 called from `orders/fulfillment.py:FulfillmentClient.create_fulfillment`; operation at risk: `orders.service:OrderService.place_order`.\n\nResearch (Tavily) on how the real service fails:\n\n- [Idempotent requests | Stripe API Reference](https://docs.stripe.com/api/idempotent_requests)\n- [Idempotent requests - Gigs API Docs](https://developers.gigs.com/api/idempotent-requests)\n- [Idempotent requests | Chargebee API documentation](https://apidocs.chargebee.com/docs/api/idempotency)\n- [Idempotent requests - Fintoc](https://docs.fintoc.com/api/fintoc-api/idempotent-requests)\n- [Idempotent requests](https://shopify.dev/docs/api/usage/idempotent-requests)\n\n## Injected failures\n\n| Scenario | Fault | Baseline | What happened |\n|---|---|---|---|\n| the fulfillment provider processes the request but the response times out | `timeout` | failed | AssertionError: exactly one fulfillment should be created at the provider |\n| the first request is rate\u2011limited and must not create an order | `rate_limit` | passed |  |\n| malformed response causes duplicate fulfillment creation | `malformed` | passed |  |\n\nExisting tests at baseline: **passed**\n\n## Candidate repairs\n\n| Rank | Candidate | Existing tests | timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t | rate_limit_place_order_does_not_record_order_when_rate_limited | malformed_place_order_does_not_record_when_provider_returns_malformed_5xx | Lines changed | Verdict |\n|---|---|---|---|---|---|---|---|\n| 1 | `add_idempotency_key_to_fulfillment_requests` \u2014 Send an Idempotency-Key header with the order_id so the fulfillment provider can deduplicate retries. | passed | failed \u2192 passed | passed \u2192 passed | passed \u2192 passed | 12 | accepted |\n| 2 | `retry_only_on_connect_timeout` \u2014 Distinguish between connection timeouts and read timeouts, retrying only on the former. | passed | failed \u2192 failed | passed \u2192 passed | passed \u2192 passed | 0 | rejected: fixes no failing scenario |\n\n## Proposed patch: `add_idempotency_key_to_fulfillment_requests`\n\n```diff\n--- a/orders/fulfillment.py\n+++ b/orders/fulfillment.py\n@@ -8,10 +8,16 @@\n         self._http = http\n         self._base_url = base_url.rstrip(\"/\")\n \n-    def create_fulfillment(self, order_id: str, customer_id: str, items: list[dict]) -> dict:\n+    def create_fulfillment(\n+        self, order_id: str, customer_id: str, items: list[dict], idempotency_key: str | None = None\n+    ) -> dict:\n+        headers = {}\n+        if idempotency_key is not None:\n+            headers[\"Idempotency-Key\"] = idempotency_key\n         response = self._http.post(\n             f\"{self._base_url}/fulfillments\",\n             json={\"order_id\": order_id, \"customer_id\": customer_id, \"items\": items},\n+            headers=headers,\n             timeout=5.0,\n         )\n         response.raise_for_status()\n--- a/orders/service.py\n+++ b/orders/service.py\n@@ -28,7 +28,9 @@\n         # The provider can be slow at peak times, so retry timed-out requests.\n         for attempt in range(self._max_retries + 1):\n             try:\n-                result = self._fulfillment.create_fulfillment(order_id, customer_id, items)\n+                result = self._fulfillment.create_fulfillment(\n+                    order_id, customer_id, items, idempotency_key=order_id\n+                )\n                 break\n             except httpx.TimeoutException:\n                 if attempt == self._max_retries:\n```\n\n## Regression test: `tests/test_ff_timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t.py`\n\n```python\n\"\"\"FaultForge scenario: the fulfillment provider processes the request but the response times out\"\"\"\n\nimport httpx\nfrom faultkit import FakeAPI, FaultyTransport, Timeout\n\nfrom orders.fulfillment import FulfillmentClient\nfrom orders.service import OrderService\n\n\ndef test_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_times_out():\n    # Arrange\n    fake_api = FakeAPI(status=201)\n    http_client = httpx.Client(\n        transport=FaultyTransport(fake_api, Timeout(on_calls={1}, after_processing=True))\n    )\n    fulfillment_client = FulfillmentClient(http_client, base_url=\"https://fulfillment.test\")\n    order_service = OrderService(fulfillment_client, max_retries=2)\n\n    # Act\n    order = order_service.place_order(customer_id=\"cust_123\", items=[{\"sku\": \"A\", \"qty\": 1}])\n\n    # Assert\n    assert len(fake_api.created) == 1, \"exactly one fulfillment should be created at the provider\"\n    assert order.fulfillment_id == fake_api.created[0][\"id\"], \"order must reference the created fulfillment ID\"\n    assert len(order_service.list_orders()) == 1, \"order should be recorded in service state\"\n```\n"
+ },
+ "events": [
+  {
+   "type": "call_sites_found",
+   "data": {
+    "sites": [
+     "orders/fulfillment.py:FulfillmentClient.create_fulfillment"
+    ]
+   }
+  },
+  {
+   "type": "dependencies_found",
+   "data": {
+    "dependencies": [
+     "Fulfillment Provider API"
+    ]
+   }
+  },
+  {
+   "type": "research_started",
+   "data": {
+    "query": "Fulfillment Provider API API timeouts rate limits Retry-After retries idempotency keys duplicate requests documentation"
+   }
+  },
+  {
+   "type": "research_finished",
+   "data": {
+    "sources": [
+     {
+      "title": "Idempotent requests | Stripe API Reference",
+      "url": "https://docs.stripe.com/api/idempotent_requests"
+     },
+     {
+      "title": "Idempotent requests - Gigs API Docs",
+      "url": "https://developers.gigs.com/api/idempotent-requests"
+     },
+     {
+      "title": "Idempotent requests | Chargebee API documentation",
+      "url": "https://apidocs.chargebee.com/docs/api/idempotency"
+     },
+     {
+      "title": "Idempotent requests - Fintoc",
+      "url": "https://docs.fintoc.com/api/fintoc-api/idempotent-requests"
+     },
+     {
+      "title": "Idempotent requests",
+      "url": "https://shopify.dev/docs/api/usage/idempotent-requests"
+     }
+    ]
+   }
+  },
+  {
+   "type": "scenarios_planned",
+   "data": {
+    "scenarios": [
+     {
+      "fault": "timeout",
+      "invariant": "Exactly one fulfillment is created at the provider and the order is recorded with that fulfillment's ID, even if a successful request times out on the response and is retried."
+     },
+     {
+      "fault": "rate_limit",
+      "invariant": "No order is recorded when the provider returns 429; if the caller retries place_order, exactly one fulfillment is created at the provider and the order is recorded with that fulfillment's ID."
+     },
+     {
+      "fault": "malformed",
+      "invariant": "No order is recorded when the provider returns 5xx; if the caller retries place_order, exactly one fulfillment is created at the provider and the order is recorded with that fulfillment's ID."
+     }
+    ]
+   }
+  },
+  {
+   "type": "scenario_written",
+   "data": {
+    "scenario": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "fault": "timeout",
+    "title": "exactly one fulfillment is created at the provider and the order is recorded with that fulfillment's ID, even if a successful request times out on the response and is retried",
+    "test_code": "\"\"\"FaultForge scenario: exactly one fulfillment is created at the provider and the order is recorded with that fulfillment's ID, even if a successful request times out on the response and is retried\"\"\"\n\nimport httpx\nfrom faultkit import FakeAPI, FaultyTransport, Timeout\n\nfrom orders.fulfillment import FulfillmentClient\nfrom orders.service import OrderService\n\n\ndef test_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_times_out():\n    # Arrange\n    fake_api = FakeAPI(status=201)\n    http_client = httpx.Client(\n        transport=FaultyTransport(fake_api, Timeout(on_calls={1}, after_processing=True))\n    )\n    fulfillment_client = FulfillmentClient(http_client, base_url=\"https://fulfillment.test\")\n    order_service = OrderService(fulfillment_client, max_retries=2)\n\n    # Act\n    order = order_service.place_order(customer_id=\"cust_123\", items=[{\"sku\": \"A\", \"qty\": 1}])\n\n    # Assert\n    assert len(fake_api.accepted) == 1, \"exactly one request was sent to the fulfillment provider\"\n    assert len(fake_api.created) == 1, \"exactly one fulfillment should have been created\"\n    assert order.fulfillment_id == fake_api.created[0][\"id\"], \"order must reference the created fulfillment ID\"\n    assert len(order_service.list_orders()) == 1, \"order should be recorded in service state\"\n"
+   }
+  },
+  {
+   "type": "scenario_written",
+   "data": {
+    "scenario": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "fault": "rate_limit",
+    "title": "the first request is rate\u2011limited and must not create an order",
+    "test_code": "\"\"\"FaultForge scenario: the first request is rate\u2011limited and must not create an order\"\"\"\n\nimport httpx\nfrom faultkit import FakeAPI, FaultyTransport, RateLimit\n\nfrom orders.fulfillment import FulfillmentClient\nfrom orders.service import OrderService\n\n\ndef test_place_order_does_not_record_order_when_rate_limited():\n    # The provider will answer the first call with 429 and a Retry\u2011After header.\n    fake_api = FakeAPI(status=429)\n    http = httpx.Client(\n        transport=FaultyTransport(fake_api, RateLimit(on_calls={1}, retry_after=1))\n    )\n    fulfillment = FulfillmentClient(http, base_url=\"https://fulfill.test\")\n    service = OrderService(fulfillment, max_retries=2)\n\n    # Execute the operation that risks the invariant.\n    try:\n        service.place_order(customer_id=\"cust_123\", items=[{\"sku\": \"A\", \"qty\": 1}])\n    except Exception:\n        # Raising an error is acceptable; we only care about side\u2011effects.\n        pass\n\n    # The invariant: no order must be recorded when the provider returns 429.\n    assert len(service.list_orders()) == 0, (\n        \"an order must not be recorded when the fulfillment provider returns 429\"\n    )\n    # Exactly one request was sent to the fake API (the retry does not happen because the\n    # fault is configured for call index 1, which never occurs after the first failure).\n    assert len(fake_api.accepted) == 1, (\n        \"the faulty transport must have recorded exactly one request sent to the provider\"\n    )\n"
+   }
+  },
+  {
+   "type": "scenario_written",
+   "data": {
+    "scenario": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "fault": "malformed",
+    "title": "malformed response causes duplicate fulfillment creation",
+    "test_code": "\"\"\"FaultForge scenario: malformed response causes duplicate fulfillment creation\"\"\"\n\nimport httpx\nfrom faultkit import FaultyTransport, Malformed\n\nfrom orders.fulfillment import FulfillmentClient\nfrom orders.service import OrderService, Order\nfrom faultkit import FakeAPI\n\n\ndef test_place_order_does_not_record_when_provider_returns_malformed_5xx():\n    fake = FakeAPI(status=500, body={\"error\": \"truncated\"})\n    http = httpx.Client(\n        transport=FaultyTransport(fake, Malformed(on_calls={1}))\n    )\n    fulfillment = FulfillmentClient(http, base_url=\"https://fulfill.test\")\n    service = OrderService(fulfillment, max_retries=2)\n\n    try:\n        service.place_order(\"cust_123\", [{\"sku\": \"A\", \"qty\": 1}])\n    except Exception:\n        pass\n\n    assert len(service._orders) == 0, \"no order should be recorded when the provider fails\"\n    assert len(fake.accepted) == 1, \"exactly one request must be sent to the provider\"\n    assert len(fake.created) == 0, \"no fulfillment should be created when the response is malformed\"\n"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "existing_tests",
+    "snapshot": "35ff42d4-1596-459f-9eab-686672c93039"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "snapshot": "35ff42d4-1596-459f-9eab-686672c93039"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "snapshot": "35ff42d4-1596-459f-9eab-686672c93039"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "snapshot": "35ff42d4-1596-459f-9eab-686672c93039"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "outcome": "failed",
+    "message": "AssertionError: the faulty transport must have recorded exactly one request sent to the provider",
+    "snapshot": "e27ce53f-37fe-4960-bf77-8d10a2287c7d",
+    "duration_s": 2.742
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "outcome": "failed",
+    "message": "AssertionError: exactly one request was sent to the fulfillment provider",
+    "snapshot": "165eac43-2f45-42d2-9eae-bd9d14c51be2",
+    "duration_s": 3.562
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "existing_tests",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "3c62207a-5007-428c-afb3-25157815c73f",
+    "duration_s": 3.57
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "outcome": "failed",
+    "message": "AssertionError: no fulfillment should be created when the response is malformed",
+    "snapshot": "0e84febc-d8d4-46b6-b214-5bf4c4022ccf",
+    "duration_s": 3.57
+   }
+  },
+  {
+   "type": "scenario_triaged",
+   "data": {
+    "scenario": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "verdict": "test_mistake",
+    "reason": "The test asserts that only one request is sent (len(fake_api.accepted) == 1), but the application's retry logic explicitly sends a second request when the first times out, so two requests are correctly sent."
+   }
+  },
+  {
+   "type": "scenario_triaged",
+   "data": {
+    "scenario": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "verdict": "test_mistake",
+    "reason": "The test expects the fake API to have recorded one request, but the RateLimit fault in the test infrastructure returns a 429 response without forwarding the request to the fake API, leaving its accepted list empty."
+   }
+  },
+  {
+   "type": "scenario_triaged",
+   "data": {
+    "scenario": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "verdict": "test_mistake",
+    "reason": "The test assumes FakeAPI will not record a fulfillment in `fake.created` when returning a 500 error, but FakeAPI records all creation attempts regardless of the configured response status, as shown by the 'accepted' fulfillment in `fake.created` despite the 500 response."
+   }
+  },
+  {
+   "type": "scenario_fixed",
+   "data": {
+    "scenario": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "fault": "timeout",
+    "title": "the fulfillment provider processes the request but the response times out",
+    "test_code": "\"\"\"FaultForge scenario: the fulfillment provider processes the request but the response times out\"\"\"\n\nimport httpx\nfrom faultkit import FakeAPI, FaultyTransport, Timeout\n\nfrom orders.fulfillment import FulfillmentClient\nfrom orders.service import OrderService\n\n\ndef test_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_times_out():\n    # Arrange\n    fake_api = FakeAPI(status=201)\n    http_client = httpx.Client(\n        transport=FaultyTransport(fake_api, Timeout(on_calls={1}, after_processing=True))\n    )\n    fulfillment_client = FulfillmentClient(http_client, base_url=\"https://fulfillment.test\")\n    order_service = OrderService(fulfillment_client, max_retries=2)\n\n    # Act\n    order = order_service.place_order(customer_id=\"cust_123\", items=[{\"sku\": \"A\", \"qty\": 1}])\n\n    # Assert\n    assert len(fake_api.created) == 1, \"exactly one fulfillment should be created at the provider\"\n    assert order.fulfillment_id == fake_api.created[0][\"id\"], \"order must reference the created fulfillment ID\"\n    assert len(order_service.list_orders()) == 1, \"order should be recorded in service state\"\n"
+   }
+  },
+  {
+   "type": "scenario_fixed",
+   "data": {
+    "scenario": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "fault": "rate_limit",
+    "title": "the first request is rate\u2011limited and must not create an order",
+    "test_code": "\"\"\"FaultForge scenario: the first request is rate\u2011limited and must not create an order\"\"\"\n\nimport httpx\nfrom faultkit import FakeAPI, FaultyTransport, RateLimit\n\nfrom orders.fulfillment import FulfillmentClient\nfrom orders.service import OrderService\n\n\ndef test_place_order_does_not_record_order_when_rate_limited():\n    # The provider will answer the first call with 429 and a Retry\u2011After header.\n    # The fake API is configured for success (201) but the fault intercepts the first call.\n    fake_api = FakeAPI(status=201)\n    http = httpx.Client(\n        transport=FaultyTransport(fake_api, RateLimit(on_calls={1}, retry_after=1))\n    )\n    fulfillment = FulfillmentClient(http, base_url=\"https://fulfill.test\")\n    service = OrderService(fulfillment, max_retries=2)\n\n    # Execute the operation that risks the invariant.\n    # OrderService only retries on TimeoutException, not on 429, so an exception is expected.\n    try:\n        service.place_order(customer_id=\"cust_123\", items=[{\"sku\": \"A\", \"qty\": 1}])\n    except Exception:\n        # Raising an error is acceptable; we only care about side\u2011effects.\n        pass\n\n    # The invariant: no order must be recorded when the provider returns 429.\n    assert len(service.list_orders()) == 0, (\n        \"an order must not be recorded when the fulfillment provider returns 429\"\n    )\n"
+   }
+  },
+  {
+   "type": "scenario_fixed",
+   "data": {
+    "scenario": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "fault": "malformed",
+    "title": "malformed response causes duplicate fulfillment creation",
+    "test_code": "\"\"\"FaultForge scenario: malformed response causes duplicate fulfillment creation\"\"\"\n\nimport httpx\nfrom faultkit import FaultyTransport, Malformed\n\nfrom orders.fulfillment import FulfillmentClient\nfrom orders.service import OrderService, Order\nfrom faultkit import FakeAPI\n\n\ndef test_place_order_does_not_record_when_provider_returns_malformed_5xx():\n    fake = FakeAPI(status=500, body={\"error\": \"truncated\"})\n    http = httpx.Client(\n        transport=FaultyTransport(fake, Malformed(on_calls={1}))\n    )\n    fulfillment = FulfillmentClient(http, base_url=\"https://fulfill.test\")\n    service = OrderService(fulfillment, max_retries=2)\n\n    try:\n        service.place_order(\"cust_123\", [{\"sku\": \"A\", \"qty\": 1}])\n    except Exception:\n        pass\n\n    assert len(service._orders) == 0, \"no order should be recorded when the provider fails\"\n    assert len(fake.accepted) == 1, \"exactly one request must be sent to the provider\"\n"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "existing_tests",
+    "snapshot": "395c8d4c-13bf-46d0-a199-f1f4a6ee4330"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "snapshot": "395c8d4c-13bf-46d0-a199-f1f4a6ee4330"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "snapshot": "395c8d4c-13bf-46d0-a199-f1f4a6ee4330"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "validation",
+    "check": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "snapshot": "395c8d4c-13bf-46d0-a199-f1f4a6ee4330"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "existing_tests",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "f4196701-ac95-4982-91d9-c0760f0a5d29",
+    "duration_s": 2.689
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "121730f3-9505-4a1d-bf19-0b8dc4bccc7d",
+    "duration_s": 3.42
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "0d90613f-d156-4048-8914-7cff75231969",
+    "duration_s": 3.552
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "validation",
+    "check": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "outcome": "failed",
+    "message": "AssertionError: exactly one fulfillment should be created at the provider",
+    "snapshot": "9849f576-5b3b-4c54-a809-94a46b156692",
+    "duration_s": 3.552
+   }
+  },
+  {
+   "type": "scenario_triaged",
+   "data": {
+    "scenario": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "verdict": "application_bug",
+    "reason": "The application retries on timeout but does not send an idempotency key as documented for the real fulfillment providers, causing duplicate fulfillments when a request is processed but the response times out."
+   }
+  },
+  {
+   "type": "pipeline_started",
+   "data": {
+    "repo": "order-service",
+    "scenarios": [
+     {
+      "id": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+      "title": "the fulfillment provider processes the request but the response times out",
+      "fault": "timeout"
+     },
+     {
+      "id": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+      "title": "the first request is rate\u2011limited and must not create an order",
+      "fault": "rate_limit"
+     },
+     {
+      "id": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+      "title": "malformed response causes duplicate fulfillment creation",
+      "fault": "malformed"
+     }
+    ]
+   }
+  },
+  {
+   "type": "workspace_ready",
+   "data": {
+    "snapshot": "0d5d7646-72cd-4562-8193-0bdf2711b4a0"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "baseline",
+    "check": "existing_tests",
+    "snapshot": "0d5d7646-72cd-4562-8193-0bdf2711b4a0"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "baseline",
+    "check": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "snapshot": "0d5d7646-72cd-4562-8193-0bdf2711b4a0"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "baseline",
+    "check": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "snapshot": "0d5d7646-72cd-4562-8193-0bdf2711b4a0"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "baseline",
+    "check": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "snapshot": "0d5d7646-72cd-4562-8193-0bdf2711b4a0"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "baseline",
+    "check": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "outcome": "failed",
+    "message": "AssertionError: exactly one fulfillment should be created at the provider",
+    "snapshot": "aaa44f0f-5897-417a-94ad-e539897b56fa",
+    "duration_s": 3.403
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "baseline",
+    "check": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "ead9797c-fcd6-4a05-9d52-09fa760b306b",
+    "duration_s": 8.6
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "baseline",
+    "check": "existing_tests",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "41124ba6-c582-409f-85dd-4a824577bed6",
+    "duration_s": 8.749
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "baseline",
+    "check": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "c9452ad9-79df-48ef-a670-42674dd2dd5f",
+    "duration_s": 8.868
+   }
+  },
+  {
+   "type": "failure_reproduced",
+   "data": {
+    "scenario": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "message": "AssertionError: exactly one fulfillment should be created at the provider"
+   }
+  },
+  {
+   "type": "repairs_planned",
+   "data": {
+    "strategies": [
+     {
+      "id": "add_idempotency_key_to_fulfillment_requests",
+      "summary": "Send an Idempotency-Key header with the order_id so the fulfillment provider can deduplicate retries.",
+      "approach": "Modify FulfillmentClient.create_fulfillment to accept an idempotency_key parameter and include it in the request headers (e.g., 'Idempotency-Key'). Update OrderService.place_order to pass the generated order_id as the idempotency key. This ensures that when a timeout occurs after the provider has processed the request, the retry with the same key will not create a duplicate fulfillment."
+     },
+     {
+      "id": "retry_only_on_connect_timeout",
+      "summary": "Distinguish between connection timeouts and read timeouts, retrying only on the former.",
+      "approach": "Catch httpx.ConnectTimeout separately from httpx.ReadTimeout (or inspect the exception) and only retry when the timeout happened before the request was sent. This avoids retrying a request that may have already been processed by the provider, but it relies on the timeout type being detectable and may not cover all cases where the provider processed the request but the response was lost."
+     }
+    ]
+   }
+  },
+  {
+   "type": "candidate_written",
+   "data": {
+    "candidate": "add_idempotency_key_to_fulfillment_requests",
+    "files": [
+     "orders/fulfillment.py",
+     "orders/service.py"
+    ]
+   }
+  },
+  {
+   "type": "candidate_written",
+   "data": {
+    "candidate": "retry_only_on_connect_timeout",
+    "files": [
+     "orders/fulfillment.py"
+    ]
+   }
+  },
+  {
+   "type": "replay_started",
+   "data": {
+    "base": "0d5d7646-72cd-4562-8193-0bdf2711b4a0",
+    "scenarios": [
+     "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+     "rate_limit_place_order_does_not_record_order_when_rate_limited",
+     "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx"
+    ],
+    "candidates": [
+     "add_idempotency_key_to_fulfillment_requests",
+     "retry_only_on_connect_timeout"
+    ]
+   }
+  },
+  {
+   "type": "candidate_applied",
+   "data": {
+    "candidate": "add_idempotency_key_to_fulfillment_requests",
+    "summary": "Send an Idempotency-Key header with the order_id so the fulfillment provider can deduplicate retries.",
+    "parent": "0d5d7646-72cd-4562-8193-0bdf2711b4a0",
+    "snapshot": "d7fbd272-0d72-4242-9d40-81f47285fe93",
+    "diff": "--- a/orders/fulfillment.py\n+++ b/orders/fulfillment.py\n@@ -8,10 +8,16 @@\n         self._http = http\n         self._base_url = base_url.rstrip(\"/\")\n \n-    def create_fulfillment(self, order_id: str, customer_id: str, items: list[dict]) -> dict:\n+    def create_fulfillment(\n+        self, order_id: str, customer_id: str, items: list[dict], idempotency_key: str | None = None\n+    ) -> dict:\n+        headers = {}\n+        if idempotency_key is not None:\n+            headers[\"Idempotency-Key\"] = idempotency_key\n         response = self._http.post(\n             f\"{self._base_url}/fulfillments\",\n             json={\"order_id\": order_id, \"customer_id\": customer_id, \"items\": items},\n+            headers=headers,\n             timeout=5.0,\n         )\n         response.raise_for_status()\n--- a/orders/service.py\n+++ b/orders/service.py\n@@ -28,7 +28,9 @@\n         # The provider can be slow at peak times, so retry timed-out requests.\n         for attempt in range(self._max_retries + 1):\n             try:\n-                result = self._fulfillment.create_fulfillment(order_id, customer_id, items)\n+                result = self._fulfillment.create_fulfillment(\n+                    order_id, customer_id, items, idempotency_key=order_id\n+                )\n                 break\n             except httpx.TimeoutException:\n                 if attempt == self._max_retries:\n"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "add_idempotency_key_to_fulfillment_requests",
+    "check": "existing_tests",
+    "snapshot": "d7fbd272-0d72-4242-9d40-81f47285fe93"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "add_idempotency_key_to_fulfillment_requests",
+    "check": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "snapshot": "d7fbd272-0d72-4242-9d40-81f47285fe93"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "add_idempotency_key_to_fulfillment_requests",
+    "check": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "snapshot": "d7fbd272-0d72-4242-9d40-81f47285fe93"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "add_idempotency_key_to_fulfillment_requests",
+    "check": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "snapshot": "d7fbd272-0d72-4242-9d40-81f47285fe93"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "add_idempotency_key_to_fulfillment_requests",
+    "check": "existing_tests",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "177d3e3b-88fb-4319-9e2c-2632030ec2a2",
+    "duration_s": 8.358
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "add_idempotency_key_to_fulfillment_requests",
+    "check": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "281e3478-a027-4ef2-a225-fbeee7f964b0",
+    "duration_s": 8.53
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "add_idempotency_key_to_fulfillment_requests",
+    "check": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "e3d869ae-4629-468e-8b0d-54256096436c",
+    "duration_s": 9.477
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "add_idempotency_key_to_fulfillment_requests",
+    "check": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "e9fc8a51-19a2-4890-8886-c8a82c979292",
+    "duration_s": 10.624
+   }
+  },
+  {
+   "type": "candidate_applied",
+   "data": {
+    "candidate": "retry_only_on_connect_timeout",
+    "summary": "Distinguish between connection timeouts and read timeouts, retrying only on the former.",
+    "parent": "0d5d7646-72cd-4562-8193-0bdf2711b4a0",
+    "snapshot": "d2077dc8-354c-4ec1-b5bd-6d39b34c7fa9",
+    "diff": ""
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "retry_only_on_connect_timeout",
+    "check": "existing_tests",
+    "snapshot": "d2077dc8-354c-4ec1-b5bd-6d39b34c7fa9"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "retry_only_on_connect_timeout",
+    "check": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "snapshot": "d2077dc8-354c-4ec1-b5bd-6d39b34c7fa9"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "retry_only_on_connect_timeout",
+    "check": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "snapshot": "d2077dc8-354c-4ec1-b5bd-6d39b34c7fa9"
+   }
+  },
+  {
+   "type": "run_started",
+   "data": {
+    "branch": "retry_only_on_connect_timeout",
+    "check": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "snapshot": "d2077dc8-354c-4ec1-b5bd-6d39b34c7fa9"
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "retry_only_on_connect_timeout",
+    "check": "malformed_place_order_does_not_record_when_provider_returns_malformed_5xx",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "09194662-d5ca-43d7-9a17-7a45d6db9bc1",
+    "duration_s": 5.997
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "retry_only_on_connect_timeout",
+    "check": "rate_limit_place_order_does_not_record_order_when_rate_limited",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "b0eba993-ec89-48f1-ac6e-810e54485a51",
+    "duration_s": 6.056
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "retry_only_on_connect_timeout",
+    "check": "existing_tests",
+    "outcome": "passed",
+    "message": "",
+    "snapshot": "a80c953f-4797-4f86-a8f4-8c4a54f220f7",
+    "duration_s": 6.57
+   }
+  },
+  {
+   "type": "run_finished",
+   "data": {
+    "branch": "retry_only_on_connect_timeout",
+    "check": "timeout_one_fulfillment_created_and_order_links_to_it_when_fulfillment_request_t",
+    "outcome": "failed",
+    "message": "AssertionError: exactly one fulfillment should be created at the provider",
+    "snapshot": "023d1e65-ac38-4aae-87aa-e09fabb87227",
+    "duration_s": 6.641
+   }
+  },
+  {
+   "type": "replay_finished",
+   "data": {
+    "ranking": [
+     "add_idempotency_key_to_fulfillment_requests",
+     "retry_only_on_connect_timeout"
+    ]
+   }
+  },
+  {
+   "type": "pipeline_finished",
+   "data": {
+    "status": "repaired",
+    "winner": "add_idempotency_key_to_fulfillment_requests"
+   }
+  }
+ ]
+}

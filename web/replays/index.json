@@ -1,0 +1,20 @@
+{
+ "description": "Recorded live runs: NVIDIA Nemotron 3 Ultra and Nano on Nebius Token Factory, Token Factory Sandboxes",
+ "recordings": [
+  {
+   "id": "order-service",
+   "description": "Shop backend that places orders with a fulfillment provider and retries requests that time out. (recorded 2026-10-05)",
+   "file": "order-service.json"
+  },
+  {
+   "id": "webhook-service",
+   "description": "Payment webhook handler that checks each charge with the payment provider before marking an order paid. (recorded 2026-10-06)",
+   "file": "webhook-service.json"
+  },
+  {
+   "id": "hook-slinger",
+   "description": "Third-party, unchanged: rednafi/hook-slinger, a webhook delivery service with retries. (recorded 2026-10-05)",
+   "file": "hook-slinger.json"
+  }
+ ]
+}

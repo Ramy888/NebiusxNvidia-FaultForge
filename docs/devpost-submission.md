@@ -70,6 +70,6 @@ What it found in live runs:
 
 ## Links (fill in at submission)
 
-- Demo: _URL_
+- Demo: https://realramy-faultforge.static.hf.space/ (recorded live runs; switch to a live host if one becomes available)
 - Video: _YouTube URL_
 - Code: https://github.com/Ramy888/NebiusxNvidia-FaultForge (MIT; must be public at submission)

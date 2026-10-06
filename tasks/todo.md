@@ -40,7 +40,7 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 - [x] T17 UI: evidence view
 - [x] T18 Pull request with evidence
 - [x] T19 Public demo limits — debate-review done 2026-10-04 (P0 + P2 fixed)
-- [~] T20 Deploy — blocked: Nebius AI Cloud needs billing ($25 top-up), Hugging Face Docker Spaces need PRO; fallback: static replay
+- [x] T20 Deploy — static replay of recorded live runs at realramy-faultforge.static.hf.space (2026-10-06); live hosting still blocked on billing
 - [ ] **Checkpoint E** — demo-ready (Oct 24): offline demo ready; live demo not yet
 
 ## Phase 5 — Submission

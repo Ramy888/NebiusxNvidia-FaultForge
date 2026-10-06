@@ -158,3 +158,5 @@ button.secondary:hover { border-color: var(--accent); }
 
 .attempts { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .attempts li { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
+
+.mode-replay { color: var(--accent); border-color: currentColor; }

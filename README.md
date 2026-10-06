@@ -70,6 +70,13 @@ Nemotron models are region-scoped on Token Factory, so FaultForge keeps one Open
 
 > **Status (2026-10-04):** the full loop runs live on Nemotron 3 Ultra and Nano via Token Factory, with Tavily research — from the CLI and from the web UI. In the latest batch, 6 of 8 live runs produced a genuine, verified repair; see [`docs/live-runs.md`](docs/live-runs.md) for every iteration and what it taught us. Since 2026-10-05 it also runs fully on **Token Factory Sandboxes** (`--sandbox contree`): every scenario and every repair is a branch of one sandbox checkpoint.
 
+## Try it
+
+**[Recorded live runs on Hugging Face](https://realramy-faultforge.static.hf.space/)**: the real UI
+replaying three runs recorded on 5–6 October 2026 (Nemotron 3 Ultra + Nano on Token Factory, every
+test and repair in Token Factory Sandboxes). No model calls happen on that page; run it live with
+the instructions below.
+
 ## Quick start (offline, no keys)
 
 ```bash

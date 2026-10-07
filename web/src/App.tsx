@@ -8,6 +8,7 @@ import {
   startRun,
 } from "./api";
 import { Activity } from "./components/Activity";
+import { HostingNotice } from "./components/HostingNotice";
 import { AttemptTree } from "./components/AttemptTree";
 import { Evidence } from "./components/Evidence";
 import { PhaseBar } from "./components/PhaseBar";
@@ -93,6 +94,7 @@ export default function App() {
           on NVIDIA Nemotron and Nebius Token Factory; every attempt runs in its own sandbox
           branch.
         </p>
+        {info?.mode === "replay" && <HostingNotice />}
       </section>
 
       <section className="panel picker" aria-labelledby="picker-heading">

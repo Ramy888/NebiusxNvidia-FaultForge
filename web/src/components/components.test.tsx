@@ -75,3 +75,13 @@ test("when nothing passes, evidence lists every attempt and why it was rejected"
   expect(attempts).toContain("Try b");
   expect(attempts).toContain("fixes no failing scenario");
 });
+
+test("the recorded demo states that its host makes no model calls", async () => {
+  const { HostingNotice } = await import("./HostingNotice");
+  render(<HostingNotice />);
+
+  const text = document.body.textContent ?? "";
+  expect(text).toContain("static hosting only");
+  expect(text).toContain("Nebius Token Factory");
+  expect(text).toContain("no model calls");
+});

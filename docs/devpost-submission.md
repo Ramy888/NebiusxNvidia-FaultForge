@@ -70,6 +70,8 @@ What it found in live runs:
 
 ## Links (fill in at submission)
 
-- Demo: https://realramy-faultforge.static.hf.space/ (recorded live runs; switch to a live host if one becomes available)
+- Demo: https://realramy-faultforge.static.hf.space/ — recorded live runs. Hugging Face only hosts
+  the static page: it makes no model calls, and no NVIDIA model is called through Hugging Face. All
+  Nemotron calls go to Nebius Token Factory; all code runs in Token Factory Sandboxes.
 - Video: _YouTube URL_
 - Code: https://github.com/Ramy888/NebiusxNvidia-FaultForge (MIT; must be public at submission)

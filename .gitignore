@@ -13,3 +13,6 @@ __pycache__/
 .venv/
 node_modules/
 .DS_Store
+scripts/demo-video/out/
+scripts/demo-video/fail.png
+docs/video/*.mp4

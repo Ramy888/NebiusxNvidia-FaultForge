@@ -151,9 +151,10 @@ examples/        example services with realistic hidden failures
 ## Tests
 
 ```bash
-uv run pytest            # 165 tests, offline (plus 16 UI tests: cd web && npm test)
+uv run pytest            # 165 tests, offline
 uv run ruff check .
-cd web && npm test       # UI model and components
+cd web && npm test       # 20 UI tests: run model and components
+cd web && npm run test:e2e   # 7 browser tests: the replay page and the scripted server, end to end
 ```
 
 ## Prior art

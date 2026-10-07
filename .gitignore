@@ -14,5 +14,6 @@ __pycache__/
 node_modules/
 .DS_Store
 scripts/demo-video/out/
+scripts/demo-video/out-live/
 scripts/demo-video/fail.png
 docs/video/*.mp4

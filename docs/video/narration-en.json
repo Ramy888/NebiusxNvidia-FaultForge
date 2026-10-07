@@ -68,8 +68,13 @@
    "text": "The repair derives an idempotency key from the payload. FaultForge then opens a pull request with the patch, the test and the evidence."
   },
   {
-   "start": 154.0,
-   "end": 158.67,
+   "start": 154.3,
+   "end": 170.9,
+   "text": "And this is a live run, sped up twenty times: Nemotron on Token Factory, every check in Token Factory Sandboxes. About two minutes from a fresh start to a verified repair."
+  },
+  {
+   "start": 171.37,
+   "end": 176.03,
    "text": "FaultForge. Nemotron on Token Factory. About eight cents a run."
   }
  ]

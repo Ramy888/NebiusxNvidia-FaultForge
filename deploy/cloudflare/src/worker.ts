@@ -4,6 +4,7 @@
 // without Sandboxes.
 import { Container, getContainer } from "@cloudflare/containers";
 import { type Caps, release, remaining, reserve } from "./budget";
+import { decodedPath, isRunStart } from "./routes";
 
 interface Env {
   FAULTFORGE: DurableObjectNamespace<FaultForge>;
@@ -42,11 +43,12 @@ export class FaultForge extends Container<Env> {
   }
 
   override async fetch(req: Request): Promise<Response> {
-    const url = new URL(req.url);
+    const path = decodedPath(new URL(req.url).pathname);
+    if (path === null) return json({ detail: "malformed path" }, 400);
     const store = this.ctx.storage;
     const now = new Date();
 
-    if (req.method === "POST" && url.pathname === "/api/runs") {
+    if (isRunStart(req.method, path)) {
       const body = (await req.clone().json().catch(() => ({}))) as { mode?: string };
       if (body.mode === "demo") return super.fetch(req); // the scripted run calls no model
       if (!(await reserve(store, caps(this.env), now))) {
@@ -62,7 +64,7 @@ export class FaultForge extends Container<Env> {
       }
     }
 
-    if (req.method === "GET" && url.pathname === "/api/info") {
+    if (req.method === "GET" && path === "/api/info") {
       const res = await super.fetch(req);
       if (!res.ok) return res;
       const info = (await res.json()) as { mode?: string; live_runs_left_today?: number };

@@ -9,7 +9,7 @@ from pathlib import Path
 from .events import EventLog
 from .models import Candidate, Scenario
 from .sandbox import RunResult, Sandbox, Snapshot
-from .scope import off_path_changes
+from .scope import classify_changes
 
 # `python -m pytest` (not the `pytest` script) puts the repo root on sys.path, which is what lets
 # scenario tests `import faultkit` and the app's own packages without any packaging step.
@@ -51,6 +51,10 @@ class CandidateResult(Branch):
     fixed: list[str] = field(default_factory=list)
     regressed: list[str] = field(default_factory=list)
     rejection_reason: str = ""
+    # existing functions the patch changed off the dependency path, and whether it changed any on
+    # it: a patch that fixes a test only through off-path code points at a mistake in the test
+    off_path: list[str] = field(default_factory=list)
+    on_path_changed: bool = False
 
     @property
     def accepted(self) -> bool:
@@ -227,8 +231,17 @@ def _evaluate(
         branch.existing_tests.outcome,
         target,
     )
-    if not reason and dependency is not None:
-        reason = _off_path_reason(source, candidate, dependency)
+    off_path, on_path_changed = [], True
+    if dependency is not None:
+        original = {p: (source / p).read_text() for p in candidate.files if (source / p).is_file()}
+        off_path, on_path_changed = classify_changes(original, candidate.files, dependency, source)
+    if not reason and off_path:
+        # Green checks are not enough: a repair that changes code the dependency path never
+        # reaches is usually bending the app to fit a mistaken test (see scope.py).
+        reason = (
+            f"changes code off the dependency path ({', '.join(off_path)}); a repair should change "
+            f"how the app handles {dependency.name}, not code that only a test uses"
+        )
     return CandidateResult(
         existing_tests=branch.existing_tests,
         scenarios=branch.scenarios,
@@ -238,17 +251,6 @@ def _evaluate(
         fixed=fixed,
         regressed=regressed,
         rejection_reason=reason,
-    )
-
-
-def _off_path_reason(source: Path, candidate: Candidate, dependency) -> str:
-    """Green checks are not enough: a repair that changes code the dependency path never reaches
-    is usually bending the app to fit a mistaken test (see scope.py)."""
-    original = {p: (source / p).read_text() for p in candidate.files if (source / p).is_file()}
-    off_path = off_path_changes(original, candidate.files, dependency, source)
-    if not off_path:
-        return ""
-    return (
-        f"changes code off the dependency path ({', '.join(off_path)}); a repair should change how "
-        f"the app handles {dependency.name}, not code that only a test uses"
+        off_path=off_path,
+        on_path_changed=on_path_changed,
     )

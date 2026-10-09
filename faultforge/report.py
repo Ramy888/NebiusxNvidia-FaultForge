@@ -60,6 +60,26 @@ def render_markdown(result: PipelineResult, found=None) -> str:
                 f"| {candidate.diff_lines} | {verdict} |"
             )
 
+    if result.retriaged:
+        lines += ["", "## Rewritten tests", ""]
+        lines += [
+            f"- `{s}`: every repair that made it pass changed code off the dependency path, so the "
+            "test went back to the writer and the run was repeated with the corrected test."
+            for s in result.retriaged
+        ]
+    if result.suspects or result.possible_test_mistakes:
+        lines += ["", "## Tests to check", ""]
+        lines += [
+            f"- `{s}`: only repairs that changed code off the dependency path made it pass; this "
+            "is probably a mistake in the test, not the application."
+            for s in result.suspects
+        ]
+        lines += [
+            f"- `{s}`: the repairs that made it pass also changed code off the dependency path; "
+            "the test may be mistaken."
+            for s in result.possible_test_mistakes
+        ]
+
     if result.winner:
         lines += ["", f"## Proposed patch: `{result.winner.candidate.id}`", "", "```diff"]
         lines += [result.winner.diff.rstrip(), "```", ""]

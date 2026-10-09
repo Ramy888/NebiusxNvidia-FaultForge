@@ -45,6 +45,15 @@ candidate can win or the rejected one is revised with that reason. All four genu
 on record (the three recordings and the hosted run of 2026-10-09) still pass; tests in
 `tests/test_scope.py`. It makes no model call, so it adds no cost.
 
+**Re-triage after repair (2026-10-09).** The guard also gives evidence about the tests. If a
+reproduced failure was made to pass only by patches that changed nothing on the dependency path,
+the test most likely relies on something the app never promised. That test goes back to the
+writer with the off-path functions, the patches and its original failure; the corrected test is
+validated and triaged again, and the run is repeated once (no further re-triage). If a patch that
+made it pass also changed the path, the real fix may be what made it pass, so the test is only
+reported as possibly mistaken. Verified by tests (`tests/test_retriage.py`); it cannot be forced
+in a live run, since a mistaken generated test cannot be produced on demand.
+
 Iteration 10's cause: every failed order-service run had the correct idempotency repair, undone by
 a generated test reading `["id"]` from `.accepted` (request bodies). The test bug only appeared
 after the repair, so validation could not see it; fixing the fault kit's API and docs did.

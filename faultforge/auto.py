@@ -1,5 +1,6 @@
 """Automatic mode: find the dependency, research it, and write failure scenarios for it."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,6 +20,8 @@ class AutoScenarios:
     dependency: Dependency | None = None
     research: Research = field(default_factory=Research)
     scenarios: list[Scenario] = field(default_factory=list)
+    # rewrites a test the repairs showed to be mistaken (see pipeline.suspect_scenarios)
+    retriage: Callable[[Scenario, str], Scenario | None] | None = None
 
 
 def auto_scenarios(
@@ -36,9 +39,18 @@ def auto_scenarios(
     research = research_dependency(researcher, dependency, events)
     writer = ScenarioWriter(llm, source, dependency, research.notes, events)
     scenarios = writer.write_all()
+    retriage = None
     if sandbox is not None:
         scenarios = validate_scenarios(writer, sandbox, source, scenarios, events, setup)
-    return AutoScenarios(dependency, research, scenarios)
+
+        def retriage(scenario: Scenario, evidence: str) -> Scenario | None:
+            fixed = writer.fix(scenario, evidence)
+            if fixed is None:
+                return None
+            kept = validate_scenarios(writer, sandbox, source, [fixed], events, setup)
+            return kept[0] if kept else None
+
+    return AutoScenarios(dependency, research, scenarios, retriage)
 
 
 def validate_scenarios(

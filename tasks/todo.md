@@ -49,4 +49,4 @@ Details and acceptance criteria: [plan.md](plan.md). Deadline Oct 30, 19:00 Cair
 
 ## After submission (hardening)
 - [x] Scope guard: reject repairs that change code off the dependency path (2026-10-09, `faultforge/scope.py`)
-- [ ] Re-triage: when every candidate that fixed scenario X was rejected as off-path, X is probably a test mistake; send it back to the writer instead of reporting no repair
+- [x] Re-triage (2026-10-09, `pipeline.suspect_scenarios`): when every candidate that fixed scenario X was rejected as off-path, X is probably a test mistake; send it back to the writer instead of reporting no repair

@@ -64,7 +64,7 @@ flowchart LR
 |---|---|---|
 | Dependency analysis, scenario planning, repair strategies | **NVIDIA Nemotron 3 Ultra** (`nvidia/Nemotron-3-Ultra-550b-a55b`) on Token Factory | Reasoning over the whole codebase: what is the dependency, which operation is at risk, which distinct fixes are worth trying |
 | Writing failure tests and patches | **NVIDIA Nemotron 3 Nano** (`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`) on Token Factory | Fast, cheap generation of many candidates |
-| Reviewing reproduced failures and second attempts | **Nemotron 3 Ultra**, reasoning on | Triage ("application bug or test mistake?") and revising a repair or test that failed verification |
+| Reviewing reproduced failures and second attempts | **Nemotron 3 Ultra**, reasoning on | Triage ("application bug or test mistake?") and revising a repair or test that failed verification. A test that only off-path repairs could satisfy is triaged again after repair: it goes back to the writer and the run is repeated once with the corrected test |
 | Running every check | **Token Factory Sandboxes** (Contree) | Each run of an image yields a new image, so the baseline, every scenario and every repair are branches of one checkpoint — exactly the shape of "replay every failure against every repair" |
 | Research | **Tavily** | How the real dependency documents timeouts, rate limits and idempotency, cited in the report |
 

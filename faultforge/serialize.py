@@ -47,6 +47,9 @@ def result_to_dict(result: PipelineResult, found=None) -> dict:
             }
             for r in (result.report.ranking if result.report else [])
         ],
+        "suspect_tests": result.suspects,
+        "possible_test_mistakes": result.possible_test_mistakes,
+        "retriaged_tests": result.retriaged,
         "dependency": None,
         "research": [],
         "markdown": render_markdown(result, found),

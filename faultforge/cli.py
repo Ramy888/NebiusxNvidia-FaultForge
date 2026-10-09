@@ -108,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
             max_candidates=getattr(args, "candidates", 3),
             setup=setup,
             dependency=found.dependency if found else None,
+            retriage=found.retriage if found else None,
         )
 
     markdown = render_markdown(result, found)

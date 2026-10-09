@@ -43,7 +43,21 @@ def off_path_changes(
     original: dict[str, str], patched: dict[str, str], dependency, repo: Path
 ) -> list[str]:
     """Changed existing functions the dependency path does not reach (empty if it cannot tell)."""
+    return classify_changes(original, patched, dependency, repo)[0]
+
+
+def classify_changes(
+    original: dict[str, str], patched: dict[str, str], dependency, repo: Path
+) -> tuple[list[str], bool]:
+    """(changed functions off the dependency path, whether anything on the path changed too).
+
+    When the path is unknown nothing counts as off-path, and any change counts as on-path."""
     changed = changed_functions(original, patched)
+    off_path = _off_path(changed, dependency, repo)
+    return off_path, bool(changed - set(off_path))
+
+
+def _off_path(changed: set[str], dependency, repo: Path) -> list[str]:
     if not changed:
         return []
     files = _source_files(repo)

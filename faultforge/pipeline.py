@@ -1,7 +1,8 @@
 """Reproduce → repair → replayed verification, for one repo."""
 
 import json
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from .replay import Branch, CandidateResult, Outcome, ReplayReport, replay, run_
 from .sandbox import Sandbox
 from .scenarios import scenario_is_broken
 from .workspace import prepare_workspace
+
+Retriage = Callable[[Scenario, str], Scenario | None]
 
 
 class Status(Enum):
@@ -31,6 +34,9 @@ class PipelineResult:
     baseline: Branch
     target: Scenario | None = None
     report: ReplayReport | None = None
+    suspects: list[str] = field(default_factory=list)  # tests only off-path patches satisfied
+    possible_test_mistakes: list[str] = field(default_factory=list)
+    retriaged: list[str] = field(default_factory=list)  # tests rewritten before the second pass
 
     @property
     def winner(self) -> CandidateResult | None:
@@ -54,8 +60,112 @@ def run_pipeline(
     max_workers: int = 4,
     setup: str | None = None,
     dependency=None,
+    retriage: Retriage | None = None,
 ) -> PipelineResult:
+    """`retriage(scenario, evidence)` rewrites a test that only off-path patches could satisfy;
+    it returns the corrected scenario, or None. Without it such tests are only reported."""
     events.emit("pipeline_started", repo=source.name, scenarios=[_describe(s) for s in scenarios])
+    attempt = dict(
+        source=source,
+        llm=llm,
+        sandbox=sandbox,
+        events=events,
+        max_candidates=max_candidates,
+        max_workers=max_workers,
+        setup=setup,
+        dependency=dependency,
+    )
+    result = _attempt(scenarios, **attempt)
+    if result.report is not None:
+        failing = [
+            s.id
+            for s in result.scenarios
+            if result.baseline.scenarios[s.id].outcome is Outcome.FAILED
+        ]
+        result.suspects, result.possible_test_mistakes = suspect_scenarios(
+            result.report.results, failing
+        )
+    if result.winner is None and result.suspects and retriage is not None:
+        result = _retriage(result, retriage, attempt, events)
+
+    events.emit(
+        "pipeline_finished",
+        status=result.status.value,
+        winner=result.winner.candidate.id if result.winner else None,
+    )
+    return result
+
+
+def suspect_scenarios(
+    results: list[CandidateResult], failing: list[str]
+) -> tuple[list[str], list[str]]:
+    """(tests to send back to the writer, tests to report as possibly mistaken).
+
+    A failing test is suspect when patches made it pass, but only patches rejected for changing
+    code off the dependency path. If every such patch changed nothing on the path, the test can
+    only be satisfied by bending unrelated code: it goes back to the writer. If a patch also
+    changed the path, the real fix may be what made it pass, so it is only reported (the
+    revision step already tells the model to drop the off-path part).
+    """
+    suspects, possible = [], []
+    for scenario in failing:
+        fixers = [r for r in results if scenario in r.fixed]
+        if not fixers or any(r.accepted or not r.off_path for r in fixers):
+            continue
+        if all(not r.on_path_changed for r in fixers):
+            suspects.append(scenario)
+        else:
+            possible.append(scenario)
+    return suspects, possible
+
+
+def _retriage(result: PipelineResult, retriage: Retriage, attempt: dict, events) -> PipelineResult:
+    """Rewrite each suspect test once, then reproduce and repair again (no further re-triage)."""
+    by_id = {s.id: s for s in result.scenarios}
+    rewritten = {}
+    for scenario_id in result.suspects:
+        fixers = [r for r in result.report.results if scenario_id in r.fixed]
+        off_path = sorted({f for r in fixers for f in r.off_path})
+        reason = (
+            "every repair that made it pass changed code off the dependency path "
+            f"({', '.join(off_path)})"
+        )
+        events.emit("scenario_triaged", scenario=scenario_id, verdict="test_mistake", reason=reason)
+        evidence = (
+            f"Every repair that made this test pass had to change application code that is not on "
+            f"the dependency path: {', '.join(off_path)}. A real fix for the dependency failure "
+            "would not need that, so the test most likely relies on behaviour the application "
+            "never promised (for example data it never created). Those patches:\n"
+            + "\n".join(r.diff for r in fixers)
+            + f"\n\nThe test's original failure:\n{result.baseline.scenarios[scenario_id].output}"
+        )
+        fixed = retriage(by_id[scenario_id], evidence)
+        if fixed is not None:
+            rewritten[scenario_id] = fixed
+    if not rewritten:
+        return result
+    scenarios = [rewritten.get(s.id, s) for s in result.scenarios]
+    second = _attempt(scenarios, suffix="_retest", **attempt)
+    second.retriaged = sorted(rewritten)
+    second.suspects = [s for s in result.suspects if s not in rewritten]
+    second.possible_test_mistakes = result.possible_test_mistakes
+    return second
+
+
+def _attempt(
+    scenarios: list[Scenario],
+    source: Path,
+    llm: LLM,
+    sandbox: Sandbox,
+    events: EventLog,
+    max_candidates: int,
+    max_workers: int,
+    setup: str | None,
+    dependency,
+    suffix: str = "",
+) -> PipelineResult:
+    """One pass: workspace, baseline, and repairs for what fails. `suffix` keeps the candidate
+    ids of a second pass distinct from the first, so both stay visible in the attempt tree."""
     base = prepare_workspace(sandbox, source, scenarios, setup)
     events.emit("workspace_ready", snapshot=base.id)
     baseline = run_baseline(sandbox, base, scenarios, events, max_workers)
@@ -87,7 +197,7 @@ def run_pipeline(
                 base,
                 source,
                 scenarios,
-                candidates,
+                _renamed(candidates, suffix),
                 events,
                 max_workers,
                 baseline,
@@ -101,7 +211,7 @@ def run_pipeline(
                         base,
                         source,
                         scenarios,
-                        revised,
+                        _renamed(revised, suffix),
                         events,
                         max_workers,
                         baseline,
@@ -109,13 +219,11 @@ def run_pipeline(
                     )
                     result.report.results.extend(second.results)
             result.status = Status.REPAIRED if result.winner else Status.NO_REPAIR
-
-    events.emit(
-        "pipeline_finished",
-        status=result.status.value,
-        winner=result.winner.candidate.id if result.winner else None,
-    )
     return result
+
+
+def _renamed(candidates: list, suffix: str) -> list:
+    return [replace(c, id=c.id + suffix) for c in candidates] if suffix else candidates
 
 
 def _revise(llm, source, result, failure, failures, events) -> list:

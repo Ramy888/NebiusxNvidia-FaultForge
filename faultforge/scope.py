@@ -6,16 +6,23 @@ call sites, and the code they reach. A live run once accepted a patch that also 
 only to make a broken generated test pass. Every check was green, so verification alone could not
 tell. This check rejects repairs that change existing functions the dependency path never reaches.
 
-Reachability is by name and deliberately generous (any referenced name or attribute counts), so a
-genuine fix is not rejected for touching a helper the path really uses. A referenced class only
-brings in its constructor: an annotation such as `orders: OrderBook` must not put every method of
-`OrderBook` on the path. New functions and module-level code are always allowed.
+How the path is found:
+- From the original code only, so a patch cannot put its own change on the path by adding a
+  reference to it.
+- By name, and deliberately generous: any referenced name or attribute reaches every repo function
+  of that name, and import aliases resolve to what they import. A genuine fix should not be
+  rejected for touching a helper the path really uses. The cost is that a common method name on
+  the path (`get`, `run`) also reaches unrelated methods of that name.
+- A referenced class reaches its dunder methods (`__init__`, `__exit__`, `__call__`...), which
+  Python calls implicitly, but not its other methods: an annotation such as `orders: OrderBook`
+  must not put every method of `OrderBook` on the path.
+New functions, module-level code and docstrings are never counted as changes.
 """
 
 import ast
 from pathlib import Path
 
-SKIPPED_DIRS = ("tests/", ".venv/", "faultkit/")
+from .repair import is_app_source
 
 
 def changed_functions(original: dict[str, str], patched: dict[str, str]) -> set[str]:
@@ -26,8 +33,8 @@ def changed_functions(original: dict[str, str], patched: dict[str, str]) -> set[
         if old is None:
             continue
         before, after = _functions(old), _functions(new)
-        for qual, node in before.items():
-            if qual not in after or ast.dump(node) != ast.dump(after[qual]):
+        for qual, nodes in before.items():
+            if qual not in after or _code(nodes) != _code(after[qual]):
                 changed.add(f"{path}:{qual}")
     return changed
 
@@ -39,44 +46,65 @@ def off_path_changes(
     changed = changed_functions(original, patched)
     if not changed:
         return []
-    versions = [_source_files(repo), patched]  # names referenced before or after the patch count
-    index: dict[str, list[ast.AST]] = {}
-    for files in versions:
-        for path, code in files.items():
-            for qual, node in _functions(code).items():
-                index.setdefault(f"{path}:{qual}", []).append(node)
-    roots = [r for r in _roots(dependency) if r in index]
+    files = _source_files(repo)
+    index = {
+        f"{path}:{qual}": nodes
+        for path, code in files.items()
+        for qual, nodes in _functions(code).items()
+    }
+    roots = _roots(dependency, index)
     if not roots:
         return []  # the path is unknown, so the guard cannot judge; never reject on a guess
-    on_path = _reachable(roots, index)
+    on_path = _reachable(roots, index, _aliases(files))
     return sorted(changed - on_path)
 
 
-def _roots(dependency) -> list[str]:
+def _roots(dependency, index: dict[str, list[ast.AST]]) -> list[str]:
     roots = [f"{site.path}:{site.function}" for site in dependency.call_sites]
     module, _, qual = dependency.operation.partition(":")
     if module and qual:
         base = module.replace(".", "/")
-        roots += [f"{base}.py:{qual}", f"{base}/__init__.py:{qual}"]
-    return roots
+        for ref in index:
+            path, _, ref_qual = ref.partition(":")
+            if ref_qual == qual and _is_module_file(path, base):
+                roots.append(ref)
+    return [r for r in roots if r in index]
 
 
-def _reachable(roots: list[str], index: dict[str, list[ast.AST]]) -> set[str]:
+def _is_module_file(path: str, base: str) -> bool:
+    # "a.b" is a/b.py or a/b/__init__.py, also under a source folder such as src/
+    return any(
+        path == name or path.endswith(f"/{name}") for name in (f"{base}.py", f"{base}/__init__.py")
+    )
+
+
+def _reachable(
+    roots: list[str], index: dict[str, list[ast.AST]], aliases: dict[str, set[str]]
+) -> set[str]:
     by_name: dict[str, set[str]] = {}
+    dunders: dict[str, set[str]] = {}  # "path:Class" -> its dunder methods
     for ref in index:
-        qual = ref.split(":", 1)[1]
-        parts = qual.split(".")
-        by_name.setdefault(parts[-1], set()).add(ref)
-        if len(parts) >= 2 and parts[-1] == "__init__":
-            by_name.setdefault(parts[-2], set()).add(ref)  # a class name reaches its constructor
-    seen, queue = set(roots), list(roots)
+        path, _, qual = ref.partition(":")
+        *owner, name = qual.split(".")
+        by_name.setdefault(name, set()).add(ref)
+        if owner and name.startswith("__") and name.endswith("__"):
+            cls = f"{path}:{'.'.join(owner)}"
+            dunders.setdefault(cls, set()).add(ref)
+            by_name.setdefault(owner[-1], set()).add(ref)  # naming a class reaches its dunders
+
+    seen, queue = set(), list(roots)
     while queue:
-        for node in index[queue.pop()]:
+        ref = queue.pop()
+        if ref in seen:
+            continue
+        seen.add(ref)
+        path, _, qual = ref.partition(":")
+        if "." in qual:  # a reached method brings in its class's implicit methods
+            queue.extend(dunders.get(f"{path}:{qual.rsplit('.', 1)[0]}", ()))
+        for node in index[ref]:
             for name in _referenced_names(node):
-                for ref in by_name.get(name, ()):
-                    if ref not in seen:
-                        seen.add(ref)
-                        queue.append(ref)
+                for target in (name, *aliases.get(name, ())):
+                    queue.extend(by_name.get(target, ()))
     return seen
 
 
@@ -90,17 +118,36 @@ def _referenced_names(node: ast.AST) -> set[str]:
     return names
 
 
-def _functions(code: str) -> dict[str, ast.AST]:
+def _aliases(files: dict[str, str]) -> dict[str, set[str]]:
+    """Local name -> imported name, for `from x import f as g` and `import m as n`."""
+    aliases: dict[str, set[str]] = {}
+    for code in files.values():
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    if alias.asname:
+                        aliases.setdefault(alias.asname, set()).add(alias.name.rsplit(".", 1)[-1])
+    return aliases
+
+
+def _functions(code: str) -> dict[str, list[ast.AST]]:
+    """Every function and method, nested ones too, by qualified name. A name can hold several
+    definitions (a property getter and setter, overloads), so each maps to a list."""
     try:
         tree = ast.parse(code)
     except SyntaxError:
         return {}
-    found: dict[str, ast.AST] = {}
+    found: dict[str, list[ast.AST]] = {}
 
     def visit(body, prefix: str) -> None:
         for node in body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                found[prefix + node.name] = node
+                found.setdefault(prefix + node.name, []).append(node)
+                visit(node.body, f"{prefix}{node.name}.")
             elif isinstance(node, ast.ClassDef):
                 visit(node.body, f"{prefix}{node.name}.")
 
@@ -108,11 +155,26 @@ def _functions(code: str) -> dict[str, ast.AST]:
     return found
 
 
+def _code(nodes: list[ast.AST]) -> list[str]:
+    """What a definition does, ignoring its docstring, comments and formatting."""
+    dumped = []
+    for node in nodes:
+        body = node.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+            if isinstance(body[0].value.value, str):
+                body = body[1:]
+        parts = [node.args, *node.decorator_list, *body]
+        if node.returns is not None:
+            parts.append(node.returns)
+        dumped.append("|".join(ast.dump(p) for p in parts))
+    return dumped
+
+
 def _source_files(repo: Path) -> dict[str, str]:
     files = {}
     for path in sorted(repo.rglob("*.py")):
         relative = path.relative_to(repo).as_posix()
-        if relative.startswith(SKIPPED_DIRS) or "/." in f"/{relative}":
+        if not is_app_source(relative):
             continue
         try:
             files[relative] = path.read_text()

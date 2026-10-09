@@ -56,11 +56,16 @@ class RepairError(Exception):
     pass
 
 
+def is_app_source(relative: str) -> bool:
+    """The application code a repair may change: not tests, the fault kit or hidden folders."""
+    return not relative.startswith(("tests/", ".venv/", "faultkit/")) and "/." not in f"/{relative}"
+
+
 def collect_source_files(source: Path) -> dict[str, str]:
     files, total = {}, 0
     for path in sorted(source.rglob("*.py")):
         relative = path.relative_to(source).as_posix()
-        if relative.startswith(("tests/", ".venv/", "faultkit/")) or "/." in f"/{relative}":
+        if not is_app_source(relative):
             continue
         content = path.read_text()
         total += len(content)

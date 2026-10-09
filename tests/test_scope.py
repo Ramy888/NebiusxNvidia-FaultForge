@@ -158,20 +158,17 @@ def apply_diff(repo: Path, diff: str, tmp_path: Path) -> dict[str, str]:
     return {p: (work / p).read_text() for p in changed}
 
 
-RECORDED = {
-    "order-service": "order-service",
-    "webhook-service": "webhook-service",
-    "hook-slinger": "hook-slinger",
-}
+RECORDED = ["hook-slinger", "order-service", "webhook-service"]  # web/replays/<name>.json
 
 
-@pytest.mark.parametrize("name", sorted(RECORDED))
+@pytest.mark.skipif(shutil.which("patch") is None, reason="needs the patch tool")
+@pytest.mark.parametrize("name", RECORDED)
 def test_recorded_live_winners_stay_on_the_dependency_path(name, tmp_path):
     result = json.loads((REPLAYS / f"{name}.json").read_text())["result"]
     dep = result["dependency"]
     found = dependency(dep["operation"], *dep["call_sites"])
     winner = next(c for c in result["candidates"] if c["accepted"])
-    repo = EXAMPLES / RECORDED[name]
+    repo = EXAMPLES / name
     patched = apply_diff(repo, winner["diff"], tmp_path)
     original = {p: read(repo, p) for p in patched if (repo / p).exists()}
 
@@ -232,3 +229,102 @@ def test_without_a_known_dependency_the_same_candidate_still_wins():
 
     assert result.status is Status.REPAIRED
     assert result.winner.candidate.id == "idempotency_key"
+
+
+# --- review findings (2026-10-09) ----------------------------------------------------------------
+
+
+def write_repo(tmp_path: Path, files: dict[str, str]) -> Path:
+    for path, code in files.items():
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text(code)
+    return tmp_path
+
+
+def test_a_patch_cannot_put_its_own_off_path_change_on_the_path(tmp_path):
+    repo = EXAMPLES / "webhook-service"
+    patch = webhook_patch(with_status_hack=True)
+    # the same hack, plus a harmless new reference to OrderBook.status from the operation
+    webhooks = patch["payments/webhooks.py"]
+    patch["payments/webhooks.py"] = edit(
+        webhooks,
+        '    if event.get("type") != "payment.succeeded":',
+        '    orders.status(event.get("id", ""))\n    if event.get("type") != "payment.succeeded":',
+    )
+    original = {p: read(repo, p) for p in patch}
+
+    assert "payments/webhooks.py:OrderBook.status" in off_path_changes(
+        original, patch, WEBHOOK, repo
+    )
+
+
+def test_a_changed_property_getter_is_seen_next_to_its_setter():
+    old = (
+        "class K:\n    @property\n    def v(self):\n        return 1\n\n"
+        "    @v.setter\n    def v(self, x):\n        pass\n"
+    )
+    new = old.replace("return 1", "return 2")
+
+    assert changed_functions({"m.py": old}, {"m.py": new}) == {"m.py:K.v"}
+
+
+def test_docstring_only_edits_are_not_changes():
+    old = 'def a():\n    """Old."""\n    return 1\n'
+    new = 'def a():\n    """New wording."""\n    return 1\n'
+
+    assert changed_functions({"m.py": old}, {"m.py": new}) == set()
+
+
+CLIENT = """class Client:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def unrelated(self):
+        return 1
+
+
+def call(url):
+    with Client() as c:
+        return url
+"""
+
+
+def test_implicit_dunder_methods_of_a_reached_class_are_on_the_path(tmp_path):
+    repo = write_repo(tmp_path, {"app/client.py": CLIENT})
+    dep = dependency("app.client:call", "app/client.py:call")
+    patch = {"app/client.py": CLIENT.replace("return False", "return None")}
+
+    assert off_path_changes({"app/client.py": CLIENT}, patch, dep, repo) == []
+    patch = {"app/client.py": CLIENT.replace("return 1", "return 2")}
+    assert off_path_changes({"app/client.py": CLIENT}, patch, dep, repo) == [
+        "app/client.py:Client.unrelated"
+    ]
+
+
+def test_import_aliases_resolve_to_the_imported_function(tmp_path):
+    files = {
+        "app/checks.py": "def verify(x):\n    return x\n",
+        "app/handler.py": (
+            "from app.checks import verify as check\n\n\ndef handle(x):\n    return check(x)\n"
+        ),
+    }
+    repo = write_repo(tmp_path, files)
+    dep = dependency("app.handler:handle", "app/handler.py:handle")
+    patch = {"app/checks.py": "def verify(x):\n    return bool(x)\n"}
+
+    assert off_path_changes({"app/checks.py": files["app/checks.py"]}, patch, dep, repo) == []
+
+
+def test_nested_call_sites_and_src_layouts_resolve(tmp_path):
+    code = (
+        "def outer():\n    def _send():\n        return 1\n    return _send()\n\n\n"
+        "def other():\n    return 2\n"
+    )
+    repo = write_repo(tmp_path, {"src/app/svc.py": code})
+    dep = dependency("app.svc:outer", "src/app/svc.py:outer._send")
+    patch = {"src/app/svc.py": code.replace("return 2", "return 3")}
+
+    assert off_path_changes({"src/app/svc.py": code}, patch, dep, repo) == ["src/app/svc.py:other"]

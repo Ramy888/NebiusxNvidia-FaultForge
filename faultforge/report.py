@@ -67,6 +67,10 @@ def render_markdown(result: PipelineResult, found=None) -> str:
             "test went back to the writer and the run was repeated with the corrected test."
             for s in result.retriaged
         ]
+        lines += ["", "Repairs tried before the rewrite:", ""]
+        lines += [
+            f"- `{r.candidate.id}`: rejected: {r.rejection_reason}" for r in result.first_pass
+        ]
     if result.suspects or result.possible_test_mistakes:
         lines += ["", "## Tests to check", ""]
         lines += [

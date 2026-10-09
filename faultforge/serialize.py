@@ -14,6 +14,21 @@ def check_to_dict(check: Check) -> dict:
     }
 
 
+def _candidate(r) -> dict:
+    return {
+        "id": r.candidate.id,
+        "summary": r.candidate.summary,
+        "accepted": r.accepted,
+        "rejection_reason": r.rejection_reason,
+        "diff": r.diff,
+        "diff_lines": r.diff_lines,
+        "fixed": r.fixed,
+        "regressed": r.regressed,
+        "existing_tests": check_to_dict(r.existing_tests),
+        "scenarios": {k: check_to_dict(c) for k, c in r.scenarios.items()},
+    }
+
+
 def result_to_dict(result: PipelineResult, found=None) -> dict:
     data = {
         "repo": result.repo,
@@ -32,21 +47,8 @@ def result_to_dict(result: PipelineResult, found=None) -> dict:
             }
             for s in result.scenarios
         ],
-        "candidates": [
-            {
-                "id": r.candidate.id,
-                "summary": r.candidate.summary,
-                "accepted": r.accepted,
-                "rejection_reason": r.rejection_reason,
-                "diff": r.diff,
-                "diff_lines": r.diff_lines,
-                "fixed": r.fixed,
-                "regressed": r.regressed,
-                "existing_tests": check_to_dict(r.existing_tests),
-                "scenarios": {k: check_to_dict(c) for k, c in r.scenarios.items()},
-            }
-            for r in (result.report.ranking if result.report else [])
-        ],
+        "candidates": [_candidate(r) for r in (result.report.ranking if result.report else [])],
+        "first_pass_candidates": [_candidate(r) for r in result.first_pass],
         "suspect_tests": result.suspects,
         "possible_test_mistakes": result.possible_test_mistakes,
         "retriaged_tests": result.retriaged,

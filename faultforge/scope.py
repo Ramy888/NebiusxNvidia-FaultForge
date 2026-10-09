@@ -20,6 +20,7 @@ New functions, module-level code and docstrings are never counted as changes.
 """
 
 import ast
+from functools import lru_cache
 from pathlib import Path
 
 from .repair import is_app_source
@@ -60,17 +61,27 @@ def classify_changes(
 def _off_path(changed: set[str], dependency, repo: Path) -> list[str]:
     if not changed:
         return []
-    files = _source_files(repo)
-    index = {
-        f"{path}:{qual}": nodes
-        for path, code in files.items()
-        for qual, nodes in _functions(code).items()
-    }
+    index, aliases = _repo_index(repo)
     roots = _roots(dependency, index)
     if not roots:
         return []  # the path is unknown, so the guard cannot judge; never reject on a guess
-    on_path = _reachable(roots, index, _aliases(files))
+    on_path = _reachable(roots, index, aliases)
     return sorted(changed - on_path)
+
+
+def _repo_index(repo: Path):
+    """Functions and import aliases of the original repo, parsed once per version of its files
+    (every candidate of a run shares them)."""
+    files = _source_files(repo)
+    return _index_for(tuple(sorted(files.items())))
+
+
+@lru_cache(maxsize=8)
+def _index_for(files: tuple[tuple[str, str], ...]):
+    index = {
+        f"{path}:{qual}": nodes for path, code in files for qual, nodes in _functions(code).items()
+    }
+    return index, _aliases(dict(files))
 
 
 def _roots(dependency, index: dict[str, list[ast.AST]]) -> list[str]:

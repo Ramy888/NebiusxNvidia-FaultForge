@@ -233,8 +233,16 @@ def _evaluate(
     )
     off_path, on_path_changed = [], True
     if dependency is not None:
-        original = {p: (source / p).read_text() for p in candidate.files if (source / p).is_file()}
-        off_path, on_path_changed = classify_changes(original, candidate.files, dependency, source)
+        try:
+            original = {
+                p: (source / p).read_text() for p in candidate.files if (source / p).is_file()
+            }
+        except (OSError, UnicodeDecodeError):
+            original = None  # cannot tell what changed: no verdict either way
+        if original is not None:
+            off_path, on_path_changed = classify_changes(
+                original, candidate.files, dependency, source
+            )
     if not reason and off_path:
         # Green checks are not enough: a repair that changes code the dependency path never
         # reaches is usually bending the app to fit a mistaken test (see scope.py).

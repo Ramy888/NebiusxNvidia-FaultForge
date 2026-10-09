@@ -96,12 +96,15 @@ CORRECTED = Scenario(
 
 def stub() -> StubLLM:
     service = (ORDER_SERVICE_REPO / "orders" / "service.py").read_text()
-    hacked = service.replace("return list(self._orders)", 'return ["sentinel"]')
+    # keeps the existing suite green: only an empty service lists the sentinel
+    hacked = service.replace(
+        "return list(self._orders)", 'return list(self._orders) or ["sentinel"]'
+    )
     assert hacked != service
     plan = {"strategies": [{"id": "sentinel", "summary": "List the sentinel", "approach": "x"}]}
-    return StubLLM(
-        plan=[json.dumps(plan)], write=[json.dumps({"files": {"orders/service.py": hacked}})]
-    )
+    write = json.dumps({"files": {"orders/service.py": hacked}})
+    # two passes, each a repair round plus a revision (which also uses a planning answer)
+    return StubLLM(plan=[json.dumps(plan)] * 4, write=[write] * 4)
 
 
 def run(retriage, events: EventLog | None = None):
@@ -150,3 +153,48 @@ def test_a_writer_that_cannot_fix_it_leaves_the_suspect_reported():
     assert outcome.status is Status.NO_REPAIR
     assert outcome.suspects == ["sentinel"]
     assert outcome.retriaged == []
+
+
+# --- review findings (2026-10-09) ----------------------------------------------------------------
+
+
+def test_the_explanation_survives_the_writers_3000_character_window():
+    seen = []
+
+    def retriage(scenario, evidence):
+        seen.append(evidence[-3000:])  # what writer.fix keeps
+        return CORRECTED
+
+    run(retriage)
+
+    assert "OrderService.list_orders" in seen[0]
+    assert "never promised" in seen[0]
+
+
+def test_the_first_pass_candidates_stay_in_the_result_and_report():
+    outcome = run(lambda scenario, evidence: CORRECTED)
+
+    first = sorted(r.candidate.id for r in outcome.first_pass)
+    assert first == ["sentinel", "sentinel_revised"]  # the repair and its revision
+    data = result_to_dict(outcome)
+    assert sorted(c["id"] for c in data["first_pass_candidates"]) == first
+    assert all(
+        "off the dependency path" in c["rejection_reason"] for c in data["first_pass_candidates"]
+    )
+    assert "`sentinel`" in data["markdown"]
+
+
+def test_a_rewritten_test_that_is_still_suspect_is_reported_again():
+    # the writer returns the same mistaken test: the second pass must still flag it
+    outcome = run(lambda scenario, evidence: SENTINEL)
+
+    assert outcome.retriaged == ["sentinel"]
+    assert outcome.suspects == ["sentinel"]
+
+
+def test_revised_candidates_in_the_second_pass_are_suffixed_once():
+    from faultforge.pipeline import _renamed
+
+    renamed = _renamed([Candidate("a", "a")], "_retest")
+    assert [c.id for c in renamed] == ["a_retest"]
+    assert [c.id for c in _renamed(renamed, "")] == ["a_retest"]

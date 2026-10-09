@@ -37,6 +37,7 @@ class PipelineResult:
     suspects: list[str] = field(default_factory=list)  # tests only off-path patches satisfied
     possible_test_mistakes: list[str] = field(default_factory=list)
     retriaged: list[str] = field(default_factory=list)  # tests rewritten before the second pass
+    first_pass: list[CandidateResult] = field(default_factory=list)  # repairs before the rewrite
 
     @property
     def winner(self) -> CandidateResult | None:
@@ -101,8 +102,9 @@ def suspect_scenarios(
 ) -> tuple[list[str], list[str]]:
     """(tests to send back to the writer, tests to report as possibly mistaken).
 
-    A failing test is suspect when patches made it pass, but only patches rejected for changing
-    code off the dependency path. If every such patch changed nothing on the path, the test can
+    A failing test is suspect when patches made it pass, but every one of them changed code off
+    the dependency path (whatever else they were also rejected for). If every such patch changed
+    nothing on the path, the test can
     only be satisfied by bending unrelated code: it goes back to the writer. If a patch also
     changed the path, the real fix may be what made it pass, so it is only reported (the
     revision step already tells the model to drop the off-path part).
@@ -131,13 +133,15 @@ def _retriage(result: PipelineResult, retriage: Retriage, attempt: dict, events)
             f"({', '.join(off_path)})"
         )
         events.emit("scenario_triaged", scenario=scenario_id, verdict="test_mistake", reason=reason)
+        # writer.fix keeps only the last 3000 characters, so the explanation goes last
+        failure = result.baseline.scenarios[scenario_id].output[-800:]
+        patches = "\n".join(r.diff for r in fixers)[:1200]
         evidence = (
-            f"Every repair that made this test pass had to change application code that is not on "
-            f"the dependency path: {', '.join(off_path)}. A real fix for the dependency failure "
-            "would not need that, so the test most likely relies on behaviour the application "
-            "never promised (for example data it never created). Those patches:\n"
-            + "\n".join(r.diff for r in fixers)
-            + f"\n\nThe test's original failure:\n{result.baseline.scenarios[scenario_id].output}"
+            f"The test's original failure:\n{failure}\n\nThe patches that made it pass:\n"
+            f"{patches}\n\nEvery repair that made this test pass had to change application code "
+            f"that is not on the dependency path: {', '.join(off_path)}. A real fix for the "
+            "dependency failure would not need that, so the test most likely relies on behaviour "
+            "the application never promised (for example data it never created)."
         )
         fixed = retriage(by_id[scenario_id], evidence)
         if fixed is not None:
@@ -147,8 +151,18 @@ def _retriage(result: PipelineResult, retriage: Retriage, attempt: dict, events)
     scenarios = [rewritten.get(s.id, s) for s in result.scenarios]
     second = _attempt(scenarios, suffix="_retest", **attempt)
     second.retriaged = sorted(rewritten)
-    second.suspects = [s for s in result.suspects if s not in rewritten]
-    second.possible_test_mistakes = result.possible_test_mistakes
+    second.first_pass = result.report.ranking
+    suspects, possible = [], []
+    if second.report is not None:
+        failing = [
+            s.id
+            for s in second.scenarios
+            if second.baseline.scenarios[s.id].outcome is Outcome.FAILED
+        ]
+        suspects, possible = suspect_scenarios(second.report.results, failing)
+    # unrewritten first-pass suspects still stand; a rewritten test is judged by the second pass
+    second.suspects = sorted({*suspects, *(s for s in result.suspects if s not in rewritten)})
+    second.possible_test_mistakes = sorted({*possible, *result.possible_test_mistakes})
     return second
 
 
@@ -211,7 +225,7 @@ def _attempt(
                         base,
                         source,
                         scenarios,
-                        _renamed(revised, suffix),
+                        revised,  # ids derive from the renamed candidates already
                         events,
                         max_workers,
                         baseline,

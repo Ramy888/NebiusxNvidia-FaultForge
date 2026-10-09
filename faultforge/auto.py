@@ -47,8 +47,12 @@ def auto_scenarios(
             fixed = writer.fix(scenario, evidence)
             if fixed is None:
                 return None
-            kept = validate_scenarios(writer, sandbox, source, [fixed], events, setup)
-            return kept[0] if kept else None
+            # check it runs and triage it again, without a second fix: one rewrite only
+            [(checked, problem)] = _problems(writer, sandbox, source, [fixed], events, setup)
+            if problem is not None:
+                events.emit("scenario_discarded", scenario=fixed.id, reason=problem[:400])
+                return None
+            return checked
 
     return AutoScenarios(dependency, research, scenarios, retriage)
 

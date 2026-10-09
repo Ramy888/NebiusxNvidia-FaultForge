@@ -36,7 +36,7 @@ What it found in live runs:
 - **Nemotron 3 Ultra on Token Factory** handles reasoning: dependency analysis, scenario planning, triage, repair strategy, and second attempts with reasoning on.
 - **Nemotron 3 Nano on Token Factory** handles fast generation of failure tests and patches, with thinking switched off (it cut runs from ~15 minutes to ~1).
 - **Token Factory Sandboxes:** each run of an image yields a new image, so the baseline, every scenario and every repair are parallel branches of one checkpoint. That's the exact shape of "replay every failure against every repair". Model-written code never runs on our machine or the demo server.
-- **Tavily** supplies live research on the real dependency, cited in the report.
+- **Tavily** grounds the failure tests in how real services behave. Once Ultra has named the dependency, FaultForge runs one Tavily search on how that kind of API handles timeouts, rate limits, `Retry-After`, retries and idempotency keys. It passes Tavily's answer and the top five sources to the test writer as research notes. These notes are why the tests assert what the app *promised*, such as "one order is one shipment" or "a 429 is not a payment", rather than counting HTTP calls. Each live run surfaced the conventions the eventual fix followed: Stripe, Shopify and Adyen's idempotency-key docs for the order and payment services, and webhook-retry guides for hook-slinger. Every source is listed with its link in the run's preparation feed and in the evidence report. If Tavily is unavailable, the run continues without the notes, and the preparation feed shows that the research was skipped.
 - **Python, FastAPI and React:** the pipeline, an API with a live event stream, and a UI that shows the attempt tree, preparation feed, and before/after evidence.
 - **Engineering discipline:** test-first throughout (180+ tests), a code review that found 15 issues (all fixed), and a two-model security review of the public surface (findings fixed). Live runs are capped per day so a public demo can't drain credit.
 
@@ -65,6 +65,30 @@ What it found in live runs:
 - More fault types (partial responses, slow streams, connection resets) and dependencies beyond HTTP (queues, databases).
 - A GitHub App that runs FaultForge on pull requests touching dependency code.
 - Repairs that keep idempotency keys unique per destination by default (a caveat from the hook-slinger run).
+
+## Feedback on Nebius Token Factory and NVIDIA Nemotron
+
+From about 40 live runs over a week; see [`docs/live-runs.md`](docs/live-runs.md) for the details.
+
+**What worked well**
+
+- **Sandboxes' image-per-run model is the best primitive we used.** Every run returns a new image, so "baseline plus N scenarios times M repairs" is just several runs from one checkpoint, with no snapshot API to learn. Other agent builders comparing alternatives should hear about this.
+- **Price per useful result.** A full reproduce, repair and replay run costs about $0.08, mostly Ultra. Nano at $0.24/M output is cheap enough to retry freely.
+- **OpenAI compatibility held.** JSON mode and tool calling worked on Nemotron 3 Ultra and Nano with the stock `openai` client.
+
+**What cost us time, and what would fix it**
+
+1. **Models live in different regions behind different base URLs.** Nano is in eu-north1 and Ultra in us-central1, so a planner–writer setup needs two clients. The starter code assumes one base URL. *Suggestion:* show the base URL next to each model in the catalog, or route any model from one global endpoint.
+2. **Nano's default reasoning is very slow for code writing.** With thinking on, a run took about 15 minutes. With it off, it took about 1 minute, with no loss in patch quality for our use. *Suggestion:* document how to turn thinking off for each model, and say where it is worth the time.
+3. **Code inside JSON breaks for every Nemotron size.** Escaping and indentation broke most patches returned as JSON strings, and fenced code blocks fixed it. *Suggestion:* a cookbook note on getting code output from Nemotron would save other teams the same days.
+4. **Sandboxes beta access was unclear from the API side.** Before enablement every call returned a 403 that didn't say beta access was pending. Access went through a separate form. *Suggestion:* return an error that names the beta and links the form.
+5. **Undocumented Sandboxes behaviour we had to find by trial:**
+   - `apply_files()` returns an image that is already `SUCCEEDED`, and calling `wait()` on it raises an error.
+   - Whether outbound network works was not documented. It does, and we needed it for `pip install`.
+   - Run time limits and localhost/multi-process behaviour were not documented either.
+
+   *Suggestion:* one "behaviour and limits" page.
+6. **The function-calling docs show only a Llama example.** We had to test Nemotron tool calling ourselves before relying on it. *Suggestion:* show a Nemotron example, since it is the featured model family.
 
 ---
 

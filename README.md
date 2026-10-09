@@ -74,11 +74,15 @@ Nemotron models are region-scoped on Token Factory, so FaultForge keeps one Open
 
 ## Try it
 
-**[Recorded live runs on Hugging Face](https://realramy-faultforge.static.hf.space/)**: the real UI
-replaying three runs recorded on 5–6 October 2026 (Nemotron 3 Ultra + Nano on Token Factory, every
-test and repair in Token Factory Sandboxes). **Hugging Face only hosts the static page:** it makes
-no model calls, and no NVIDIA model is ever called through Hugging Face. All Nemotron calls go to
-Nebius Token Factory. Run it live with the instructions below.
+**[Live demo](https://faultforge-demo.ramy-comm.workers.dev/)**: pick a service and press "Break it
+and repair it". Every model call goes to NVIDIA Nemotron 3 Ultra and Nano on Nebius Token Factory,
+and every test and repair runs in Token Factory Sandboxes. A run takes 2–3 minutes. Live runs are
+capped per day to protect the credit; when the cap is reached, "Watch the scripted run" still shows
+the full flow. Cloudflare only hosts the web server ([`deploy/cloudflare`](deploy/cloudflare)); no
+model is called through it.
+
+**[Recorded live runs](https://realramy-faultforge.static.hf.space/)**: a static replay of three
+runs recorded on 5–6 October 2026, hosted on Hugging Face. It makes no model calls.
 
 ## Quick start (offline, no keys)
 

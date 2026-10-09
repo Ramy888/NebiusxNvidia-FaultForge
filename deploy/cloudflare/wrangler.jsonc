@@ -1,0 +1,23 @@
+// Hosted live FaultForge demo on Cloudflare Containers. See README.md for deploy steps.
+// Secrets (never in this file): NEBIUS_API_KEY, NEBIUS_PROJECT_ID, TAVILY_API_KEY.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "faultforge-demo",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-05",
+  "observability": { "enabled": true },
+  "vars": { "LIVE_RUNS_PER_DAY": "8", "LIVE_RUNS_TOTAL": "250" },
+  "containers": [
+    {
+      "class_name": "FaultForge",
+      "image": "../../Dockerfile",
+      "image_build_context": "../..",
+      "instance_type": "basic",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "FAULTFORGE", "class_name": "FaultForge" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FaultForge"] }]
+}

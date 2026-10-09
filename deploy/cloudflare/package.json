@@ -1,0 +1,19 @@
+{
+  "name": "faultforge-demo-host",
+  "private": true,
+  "description": "Cloudflare Containers host for the live FaultForge demo",
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "dry-run": "wrangler deploy --dry-run --outdir .wrangler/dry",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": { "@cloudflare/containers": "0.3.7" },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261009.1",
+    "typescript": "5.9.3",
+    "vitest": "^5.0.3",
+    "wrangler": "4.147.0"
+  }
+}

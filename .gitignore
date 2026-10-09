@@ -17,3 +17,4 @@ scripts/demo-video/out/
 scripts/demo-video/out-live/
 scripts/demo-video/fail.png
 docs/video/*.mp4
+.wrangler/

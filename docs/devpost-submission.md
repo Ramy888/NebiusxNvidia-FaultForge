@@ -22,7 +22,7 @@ Point FaultForge at a small Python service. It:
 3. **Writes executable failure tests** for timeouts, rate limits, malformed responses and duplicate delivery. Faults are injected inside the HTTP client, so they are instant and repeatable.
 4. **Reviews each reproduced failure** with Ultra: a real application bug, or a mistake in the generated test? Test mistakes go back to the writer with the reason.
 5. **Plans distinct repairs** (Ultra) and **writes them** (Nemotron 3 Nano).
-6. **Replays every failure against every repair** in Token Factory Sandboxes, each as a branch of one checkpoint. A repair wins only if it fixes a reproduced failure, breaks no existing test and regresses nothing; a failed attempt gets one revision from Ultra, told exactly what verification found.
+6. **Replays every failure against every repair** in Token Factory Sandboxes, each as a branch of one checkpoint. A repair wins only if it fixes a reproduced failure, breaks no existing test, regresses nothing and changes no existing code off the dependency path (so a patch that only bends the app to fit a mistaken test loses, even with every check green); a failed attempt gets one revision from Ultra, told exactly what verification found.
 7. **Proposes a pull request** with the patch, the regression tests and an evidence report.
 
 What it found in live runs:

@@ -234,7 +234,15 @@ def _execute(run: Run, mode: str, sandbox_name: str = "local") -> None:
                 scenarios = [scenario_from_file(p) for p in files]
             if not scenarios:
                 raise RuntimeError("no testable scenarios were found")
-            result = run_pipeline(repo, scenarios, llm, sandbox, run.events, setup=setup)
+            result = run_pipeline(
+                repo,
+                scenarios,
+                llm,
+                sandbox,
+                run.events,
+                setup=setup,
+                dependency=found.dependency if found else None,
+            )
         run.pipeline_result, run.found = result, found
         run.result = result_to_dict(result, found)
         run.state = "finished"

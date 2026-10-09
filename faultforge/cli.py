@@ -107,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
             events,
             max_candidates=getattr(args, "candidates", 3),
             setup=setup,
+            dependency=found.dependency if found else None,
         )
 
     markdown = render_markdown(result, found)

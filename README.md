@@ -56,7 +56,7 @@ flowchart LR
 
 - **Faults are injected inside the HTTP client** (an `httpx` transport), so a timeout is instant and deterministic — no sleeps, no network, no flaky tests. Four fault types: timeout after the dependency processed the request, rate limit with `Retry-After`, malformed (truncated) response, duplicate delivery.
 - **Generated tests must fail for the right reason.** A test that errors, or fails with `NameError`/`ImportError`, proves nothing and is discarded.
-- **Repairs may not touch tests or the fault kit.** A repair is accepted only if the existing suite still passes, no scenario regresses, and at least one reproduced failure is fixed. Ties go to the smaller diff.
+- **Repairs may not touch tests or the fault kit.** A repair is accepted only if the existing suite still passes, no scenario regresses, at least one reproduced failure is fixed, and it changes no existing code off the dependency path (the operation at risk, the call sites, and what they reach): a fix that only makes a mistaken test pass is rejected even when every check is green. Ties go to the smaller diff.
 
 ## How Nemotron and Nebius Token Factory are used
 
@@ -143,6 +143,7 @@ faultforge/
   scenarios.py   templates, generation, "fails for the right reason" filter
   repair.py      plan strategies (Ultra) → write patches (Nano), with validation
   replay.py      scenarios × candidates matrix, scoring
+  scope.py       keeps repairs on the dependency path
   sandbox/       contract, local implementation, Token Factory Sandboxes adapter
   llm/           contract, offline stub, Token Factory client
   pipeline.py    reproduce → repair → replay

@@ -35,8 +35,15 @@ but not kept as a scenario in this run.
 **Known weakness (2026-10-06):** in one of two webhook runs on Sandboxes the winning patch, besides
 a real fix, made `OrderBook.status` return "unknown" for missing orders, which papers over a
 generated test that never created its order. Triage does not always catch that. The published
-recording uses the other run, whose patch only touches the payment check. A guard that rejects
-repairs changing code unrelated to the dependency call is a candidate next step.
+recording uses the other run, whose patch only touches the payment check.
+
+**Fixed (2026-10-09): repairs must stay on the dependency path.** `faultforge/scope.py` rejects a
+repair that changes an existing function the dependency path never reaches (the operation at risk,
+the call sites, and every repo function they reference). That exact patch is now rejected
+("changes code off the dependency path (payments/webhooks.py:OrderBook.status)"), so the next
+candidate can win or the rejected one is revised with that reason. All four genuine live winners
+on record (the three recordings and the hosted run of 2026-10-09) still pass; tests in
+`tests/test_scope.py`. It makes no model call, so it adds no cost.
 
 Iteration 10's cause: every failed order-service run had the correct idempotency repair, undone by
 a generated test reading `["id"]` from `.accepted` (request bodies). The test bug only appeared

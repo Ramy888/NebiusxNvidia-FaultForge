@@ -53,6 +53,7 @@ def run_pipeline(
     max_candidates: int = 3,
     max_workers: int = 4,
     setup: str | None = None,
+    dependency=None,
 ) -> PipelineResult:
     events.emit("pipeline_started", repo=source.name, scenarios=[_describe(s) for s in scenarios])
     base = prepare_workspace(sandbox, source, scenarios, setup)
@@ -82,13 +83,29 @@ def run_pipeline(
             # A repair is accepted if it fixes any reproduced failure without regressions; the
             # pull request then carries the tests for exactly what it fixed.
             result.report = replay(
-                sandbox, base, source, scenarios, candidates, events, max_workers, baseline
+                sandbox,
+                base,
+                source,
+                scenarios,
+                candidates,
+                events,
+                max_workers,
+                baseline,
+                dependency=dependency,
             )
             if result.winner is None:
                 revised = _revise(llm, source, result, failure, failures, events)
                 if revised:
                     second = replay(
-                        sandbox, base, source, scenarios, revised, events, max_workers, baseline
+                        sandbox,
+                        base,
+                        source,
+                        scenarios,
+                        revised,
+                        events,
+                        max_workers,
+                        baseline,
+                        dependency=dependency,
                     )
                     result.report.results.extend(second.results)
             result.status = Status.REPAIRED if result.winner else Status.NO_REPAIR

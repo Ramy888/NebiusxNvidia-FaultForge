@@ -20,7 +20,7 @@ Point FaultForge at a small Python service. It:
 1. **Finds the outbound HTTP dependency** (static scan plus Nemotron 3 Ultra naming the dependency and the operation at risk).
 2. **Researches how that kind of service really fails** with Tavily: retries, `Retry-After`, idempotency keys.
 3. **Writes executable failure tests** for timeouts, rate limits, malformed responses and duplicate delivery. Faults are injected inside the HTTP client, so they are instant and repeatable.
-4. **Reviews each reproduced failure** with Ultra: a real application bug, or a mistake in the generated test? Test mistakes go back to the writer with the reason.
+4. **Reviews each reproduced failure** with Ultra: a real application bug, or a mistake in the generated test? Test mistakes go back to the writer with the reason. Tests are checked again after repair: if only patches that changed code off the dependency path could make a test pass, it goes back to the writer and the run is repeated once with the corrected test.
 5. **Plans distinct repairs** (Ultra) and **writes them** (Nemotron 3 Nano).
 6. **Replays every failure against every repair** in Token Factory Sandboxes, each as a branch of one checkpoint. A repair wins only if it fixes a reproduced failure, breaks no existing test, regresses nothing and changes no existing code off the dependency path (so a patch that only bends the app to fit a mistaken test loses, even with every check green); a failed attempt gets one revision from Ultra, told exactly what verification found.
 7. **Proposes a pull request** with the patch, the regression tests and an evidence report.
@@ -70,8 +70,9 @@ What it found in live runs:
 
 ## Links (fill in at submission)
 
-- Demo: https://realramy-faultforge.static.hf.space/ — recorded live runs. Hugging Face only hosts
+- Live demo: https://faultforge-demo.ramy-comm.workers.dev/ (Cloudflare hosts only the web server; every model call goes to Token Factory)
+- Replay: https://realramy-faultforge.static.hf.space/ — recorded live runs. Hugging Face only hosts
   the static page: it makes no model calls, and no NVIDIA model is called through Hugging Face. All
   Nemotron calls go to Nebius Token Factory; all code runs in Token Factory Sandboxes.
-- Video: _YouTube URL_
+- Video: https://youtu.be/zSOExa4RrCc
 - Code: https://github.com/Ramy888/NebiusxNvidia-FaultForge (MIT; must be public at submission)

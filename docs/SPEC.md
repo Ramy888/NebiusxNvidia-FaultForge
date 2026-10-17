@@ -1,6 +1,6 @@
 # FaultForge — Spec
 
-Source: the FaultForge brief Ramy chose on 2026-10-02 plus the decisions recorded in `tasks/plan.md`. This file transcribes them; it adds no new requirements.
+Source: the FaultForge brief and design decisions of 2026-10-02. This file records them; it adds no new requirements.
 
 ## Promise
 

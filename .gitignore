@@ -18,3 +18,16 @@ scripts/demo-video/out-live/
 scripts/demo-video/fail.png
 docs/video/*.mp4
 .wrangler/
+
+# AI instructions, planning notes and personal drafts — kept local, never pushed
+CLAUDE.md
+AGENTS.md
+.claude/
+.agents/
+agent/
+skills-lock.json
+tasks/
+docs/video/
+docs/devpost-submission.md
+docs/feedback.md
+docs/demo-video-script.md

@@ -3,7 +3,7 @@
 Fallback if Nebius AI Cloud hosting is not covered by hackathon credit. Hosting is free; live runs
 still call Token Factory (about $0.08 each), capped by `FAULTFORGE_LIVE_RUNS_PER_DAY`.
 
-## One-time (Ramy)
+## One-time (maintainer)
 
 1. Create a Space at huggingface.co → New Space → SDK **Docker**, visibility **Public**.
 2. In the Space's **Settings → Variables and secrets**, add:

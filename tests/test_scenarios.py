@@ -313,6 +313,35 @@ def test_triage_sends_a_test_mistake_back_to_the_writer_with_the_reason():
     assert "reads an order it never created" in writer.llm.calls[-2].user
 
 
+# Seen live on 2026-10-17: triage called the duplicate-order test a mistake ("the retry
+# inevitably creates a second"), and the rewrite asserted the bug instead of the invariant.
+INVERTED_FILL = GOOD_FILL.replace(
+    "assert len(dependency.accepted) == 1", "assert len(dependency.accepted) == 2"
+)
+
+
+def test_a_triaged_rewrite_that_passes_on_the_original_code_is_dropped():
+    from faultforge.auto import validate_scenarios
+    from faultforge.scenarios import ScenarioWriter
+
+    plan = json.dumps({"scenarios": [{"fault": "timeout", "invariant": "one fulfillment"}]})
+    events = EventLog()
+    writer = ScenarioWriter(
+        StubLLM(plan=[plan, TRIAGE_MISTAKE], write=[GOOD_FILL, INVERTED_FILL]),
+        ORDER_SERVICE_REPO,
+        DEPENDENCY,
+        "",
+        events,
+    )
+
+    with LocalSandbox() as sandbox:
+        kept = validate_scenarios(writer, sandbox, ORDER_SERVICE_REPO, writer.write_all(), events)
+
+    assert kept == []
+    discarded = [e for e in events.items() if e.type == "scenario_discarded"]
+    assert "no longer fails" in discarded[-1].data["reason"]
+
+
 def test_triage_keeps_an_application_bug():
     from faultforge.auto import validate_scenarios
     from faultforge.scenarios import ScenarioWriter

@@ -66,17 +66,21 @@ def validate_scenarios(
     setup: str | None = None,
 ) -> list[Scenario]:
     """Keep generated tests that are sound; a broken one gets one fix attempt."""
-    kept, retry = [], []
+    kept, retry, triaged = [], [], set()
     for scenario, problem in _problems(writer, sandbox, source, scenarios, events, setup):
         if problem is None:
             kept.append(scenario)
             continue
+        if problem.startswith(TRIAGE_FINDING):
+            triaged.add(scenario.id)
         fixed = writer.fix(scenario, problem)
         if fixed is None:
             events.emit("scenario_discarded", scenario=scenario.id, reason=problem[:400])
         else:
             retry.append(fixed)
-    for scenario, problem in _problems(writer, sandbox, source, retry, events, setup):
+    for scenario, problem in _problems(
+        writer, sandbox, source, retry, events, setup, must_fail=triaged
+    ):
         if problem is None:
             kept.append(scenario)
         else:
@@ -85,8 +89,10 @@ def validate_scenarios(
 
 
 def _problems(
-    writer, sandbox, source, scenarios, events, setup
+    writer, sandbox, source, scenarios, events, setup, must_fail: set[str] = frozenset()
 ) -> list[tuple[Scenario, str | None]]:
+    """`must_fail`: rewrites of tests triage flagged. The original failed on this code, so a
+    rewrite that now passes has usually been bent to assert the bug instead of the invariant."""
     if not scenarios:
         return []
     base = prepare_workspace(sandbox, source, scenarios, setup)
@@ -98,16 +104,28 @@ def _problems(
             results.append((scenario, check.output or check.message))
         elif check.outcome is Outcome.FAILED:
             results.append((scenario, triage(writer, scenario, check, events)))
+        elif scenario.id in must_fail:
+            results.append((scenario, REWRITE_PASSES))
         else:
             results.append((scenario, None))
     return results
 
 
+TRIAGE_FINDING = "Review found a mistake in the test, not the application"
+REWRITE_PASSES = (
+    "The rewritten test no longer fails on the original code, so it no longer checks the "
+    "invariant the first version caught; dropped rather than kept as a gate."
+)
+
 TRIAGE_SYSTEM = """A failure-injection test failed against a Python application. Decide whether
 the failure shows a genuine bug in how the application handles the dependency failure, or a
-mistake in the test itself: for example the test reads data it never created, expects the fake
-dependency to behave differently than documented, or asserts something the application never
-promised. Respond with JSON only:
+mechanical mistake in the test itself: for example the test reads data it never created, uses the
+fake dependency or fault kit differently than documented, or asserts on the wrong object.
+The test asserts what SHOULD happen under the fault, not what the code does today. If the
+application's own reaction to the fault (retrying, trusting the response, skipping a check) is
+what breaks the assertion, that is an application_bug, even when the current code makes the
+failure inevitable: a retry that creates a second order or charge is the bug being caught.
+Answer test_mistake only when you can name the mechanical error. Respond with JSON only:
 {"verdict": "application_bug" or "test_mistake", "reason": "one sentence"}"""
 
 
@@ -131,4 +149,4 @@ def triage(writer, scenario: Scenario, check, events: EventLog) -> str | None:
     events.emit("scenario_triaged", scenario=scenario.id, verdict=verdict, reason=reason)
     if verdict != "test_mistake":
         return None
-    return f"Review found a mistake in the test, not the application: {reason}\n{check.output}"
+    return f"{TRIAGE_FINDING}: {reason}\n{check.output}"

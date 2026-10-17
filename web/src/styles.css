@@ -268,3 +268,6 @@ summary::marker { color: var(--faint); }
   background: var(--surface); border: 1px solid var(--line); color: var(--muted); font-size: 0.86rem;
 }
 .hosting-notice strong { color: var(--text); font-weight: 600; }
+
+.footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); }
+.footer a { color: var(--muted); }

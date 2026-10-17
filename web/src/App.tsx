@@ -124,7 +124,8 @@ export default function App() {
                 Watch the scripted run
               </button>
               <span className="note">
-                {info.live_runs_left_today ?? 0} live runs left today
+                {info.live_runs_left_today ?? 0} live runs left today · a live run takes 3 to 6
+                minutes, the scripted run about 20 seconds
               </span>
             </>
           )}
@@ -134,6 +135,12 @@ export default function App() {
       {error && (
         <p role="alert" className="error">
           {error}
+        </p>
+      )}
+
+      {busy && model.phase === "idle" && (
+        <p className="mode" role="status">
+          Starting the run: preparing an isolated sandbox
         </p>
       )}
 
@@ -165,6 +172,12 @@ export default function App() {
           </div>
         </>
       )}
+      <footer className="footer note">
+        Open source (MIT):{" "}
+        <a href="https://github.com/Ramy888/NebiusxNvidia-FaultForge">
+          github.com/Ramy888/NebiusxNvidia-FaultForge
+        </a>
+      </footer>
     </div>
     </>
   );

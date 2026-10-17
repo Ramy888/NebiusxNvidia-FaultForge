@@ -86,3 +86,11 @@ What each lesson was:
 
 With triage, a run now costs about $0.08 (most of it Ultra). Typical token use per run before triage: ~3–4k prompt / ~4–5k completion tokens on Ultra for planning, ~6k / ~1k
 on Nano for writing, plus up to ~17k completion tokens on Ultra when a second attempt is needed.
+
+**Triage inverted the flagship test (2026-10-17):** on the hosted demo, triage called the order-service
+timeout test a mistake ("the retry inevitably creates a second"); the rewrite asserted the duplicates,
+passed on the buggy code and then rejected the correct Idempotency-Key repair, so the run ended with
+no verified repair. Fixes: a rewrite of a triage-flagged test that passes on the original code is
+dropped, and the triage prompt now says the test states what *should* happen, so a retry that
+creates a second order is the bug. Next live CLI run on Sandboxes: the timeout test kept,
+Idempotency-Key repair accepted (timeout and duplicate delivery both failed → passed).
